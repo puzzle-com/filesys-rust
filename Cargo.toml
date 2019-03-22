@@ -1,0 +1,66 @@
+cargo-features = ["profile-overrides"]
+
+[package]
+name = "puzzle"
+version = "0.0.1"
+authors = ["Puzzle Inc <hello@puzzle.com>"]
+edition = "2018"
+
+[[bin]]
+name = "puzzle"
+path = "node/src/main.rs"
+
+[dependencies]
+alphanet = { path = "./node/alphanet" }
+
+[build-dependencies]
+protos-autogen = { path = "./protos/builder" }
+
+[workspace]
+members = [
+    "core/chain",
+    "core/mempool",
+    "core/primitives",
+    "core/storage",
+    "core/nightshade",
+    "core/wasm",
+    "core/wasm/runtest",
+    "node/alphanet",
+    "node/beacon",
+    "node/client",
+    "node/configs",
+    "node/consensus",
+    "node/coroutines",
+    "node/devnet",
+    "node/http",
+    "node/network",
+    "protos/builder",
+    "node/runtime",
+    "node/shard",
+    "test-utils/keygen",
+    "test-utils/testlib",
+]
+exclude = [
+    "core/wasm/runtest/generate-wasm/to-wasm",
+]
+
+[dev-dependencies]
+lazy_static = "1.2.0"
+log = "0.4.6"
+rand = "0.6"
+serde_json = "1.0.0"
+
+devnet = { path = "./node/devnet" }
+alphanet = { path = "./node/alphanet" }
+node-http = { path = "./node/http" }
+primitives = { path = "./core/primitives" }
+configs = { path = "./node/configs" }
+client = { path = "./node/client" }
+testlib = { path = "./test-utils/testlib" }
+
+[profile.release]
+lto = true        # Enable full link-time optimization.
+codegen-units = 1 # Use only 1 codegen-unit to enable full optimizations.
+
+[profile.dev.overrides.pairing]
+opt-level = 3 # pairing library is too slow to use in debug
