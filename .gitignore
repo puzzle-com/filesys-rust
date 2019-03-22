@@ -1,2 +1,5 @@
 /target
+/.idea
+/node/storage/db
+node/storage
 **/*.rs.bk
