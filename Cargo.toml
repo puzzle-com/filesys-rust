@@ -1,13 +1,13 @@
 cargo-features = ["profile-overrides"]
 
 [package]
-name = "puzzle"
+name = "filesys"
 version = "0.0.1"
-authors = ["Puzzle Inc <hello@puzzle.com>"]
+authors = ["FileSys Inc <hello@filesys.com>"]
 edition = "2018"
 
 [[bin]]
-name = "puzzle"
+name = "filesys"
 path = "node/src/main.rs"
 
 [dependencies]
