@@ -1,3 +1,5 @@
+use std::convert::{TryFrom, TryInto};
+use std::iter::FromIterator;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -13,15 +15,19 @@ use futures::Stream;
 use log::*;
 use tokio::timer::Delay;
 
-use primitives::aggregate_signature::BlsPublicKey;
+use near_protos::nightshade as nightshade_proto;
+use primitives::crypto::aggregate_signature::BlsPublicKey;
 use primitives::hash::{hash_struct, CryptoHash};
-use primitives::signature::{verify, PublicKey, Signature};
-use primitives::signer::BlockSigner;
+use primitives::crypto::signature::{verify, PublicKey, Signature};
+use primitives::crypto::signer::{EDSigner, BLSSigner};
 use primitives::types::{AuthorityId, BlockIndex};
+use primitives::utils::{proto_to_result, proto_to_type};
+use protobuf::{RepeatedField, SingularPtrField};
 
 use crate::nightshade::{BlockProposal, ConsensusBlockProposal, Nightshade, State};
 
 const COOLDOWN_MS: u64 = 200;
+const MUST_HAVE_A_SIGNER: &str = "Must have a signer";
 
 #[derive(Clone, Debug)]
 pub enum Control {
@@ -43,7 +49,33 @@ pub struct Message {
     pub state: State,
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+impl TryFrom<nightshade_proto::Gossip_Message> for Message {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::Gossip_Message) -> Result<Self, Self::Error> {
+        match proto_to_type(proto.state) {
+            Ok(state) => Ok(Message {
+                sender_id: proto.sender_id as AuthorityId,
+                receiver_id: proto.receiver_id as AuthorityId,
+                state,
+            }),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+impl From<Message> for nightshade_proto::Gossip_Message {
+    fn from(message: Message) -> Self {
+        nightshade_proto::Gossip_Message {
+            sender_id: message.sender_id as u64,
+            receiver_id: message.receiver_id as u64,
+            state: SingularPtrField::some(message.state.into()),
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub enum GossipBody {
     /// Use box because large size difference between variants
     NightshadeStateUpdate(Box<Message>),
@@ -51,13 +83,80 @@ pub enum GossipBody {
     PayloadReply(Vec<SignedBlockProposal>),
 }
 
-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Clone)]
 pub struct Gossip {
     pub sender_id: AuthorityId,
     pub receiver_id: AuthorityId,
     pub body: GossipBody,
-    block_index: u64,
-    signature: Signature,
+    pub block_index: BlockIndex,
+    pub signature: Signature,
+}
+
+impl TryFrom<nightshade_proto::Gossip> for Gossip {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::Gossip) -> Result<Self, Self::Error> {
+        let body = match proto.body {
+            Some(nightshade_proto::Gossip_oneof_body::nightshade_state_update(state_update)) => {
+                state_update
+                    .try_into()
+                    .map(|update| GossipBody::NightshadeStateUpdate(Box::new(update)))
+            }
+            Some(nightshade_proto::Gossip_oneof_body::payload_request(request)) => {
+                let payload_request =
+                    request.payload_request.into_iter().map(|x| x as AuthorityId).collect();
+                Ok(GossipBody::PayloadRequest(payload_request))
+            }
+            Some(nightshade_proto::Gossip_oneof_body::payload_reply(reply)) => {
+                let proposals: Result<Vec<_>, _> =
+                    reply.payload_reply.into_iter().map(TryInto::try_into).collect();
+                proposals.map(GossipBody::PayloadReply)
+            }
+            None => unreachable!(),
+        };
+        let signature = Signature::try_from(proto.signature.as_str()).map_err(|e| e.to_string())?;
+        Ok(Gossip {
+            sender_id: proto.sender_id as AuthorityId,
+            receiver_id: proto.receiver_id as AuthorityId,
+            body: body?,
+            block_index: proto.block_index,
+            signature,
+        })
+    }
+}
+
+impl From<Gossip> for nightshade_proto::Gossip {
+    fn from(gossip: Gossip) -> nightshade_proto::Gossip {
+        let body = match gossip.body {
+            GossipBody::NightshadeStateUpdate(update) => {
+                nightshade_proto::Gossip_oneof_body::nightshade_state_update((*update).into())
+            }
+            GossipBody::PayloadRequest(request) => {
+                let request = nightshade_proto::Gossip_PayloadRequest {
+                    payload_request: request.into_iter().map(|x| x as u64).collect(),
+                    ..Default::default()
+                };
+                nightshade_proto::Gossip_oneof_body::payload_request(request)
+            }
+            GossipBody::PayloadReply(reply) => {
+                let reply = nightshade_proto::Gossip_PayloadReply {
+                    payload_reply: RepeatedField::from_iter(
+                        reply.into_iter().map(std::convert::Into::into),
+                    ),
+                    ..Default::default()
+                };
+                nightshade_proto::Gossip_oneof_body::payload_reply(reply)
+            }
+        };
+        nightshade_proto::Gossip {
+            sender_id: gossip.sender_id as u64,
+            receiver_id: gossip.receiver_id as u64,
+            body: Some(body),
+            block_index: gossip.block_index,
+            signature: gossip.signature.to_string(),
+            ..Default::default()
+        }
+    }
 }
 
 impl Gossip {
@@ -65,7 +164,7 @@ impl Gossip {
         sender_id: AuthorityId,
         receiver_id: AuthorityId,
         body: GossipBody,
-        signer: Arc<BlockSigner>,
+        signer: Arc<EDSigner>,
         block_index: u64,
     ) -> Self {
         let hash = hash_struct(&(sender_id, receiver_id, &body, block_index));
@@ -88,10 +187,31 @@ pub struct SignedBlockProposal {
     signature: Signature,
 }
 
+impl TryFrom<nightshade_proto::SignedBlockProposal> for SignedBlockProposal {
+    type Error = String;
+
+    fn try_from(proto: nightshade_proto::SignedBlockProposal) -> Result<Self, Self::Error> {
+        let signature = Signature::try_from(proto.signature.as_str())?;
+        proto_to_result(proto.block_proposal).and_then(|proposal| {
+            Ok(SignedBlockProposal { block_proposal: proposal.try_into()?, signature })
+        })
+    }
+}
+
+impl From<SignedBlockProposal> for nightshade_proto::SignedBlockProposal {
+    fn from(proposal: SignedBlockProposal) -> Self {
+        nightshade_proto::SignedBlockProposal {
+            block_proposal: SingularPtrField::some(proposal.block_proposal.into()),
+            signature: proposal.signature.to_string(),
+            ..Default::default()
+        }
+    }
+}
+
 impl SignedBlockProposal {
-    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<BlockSigner>) -> Self {
+    fn new(author: AuthorityId, hash: CryptoHash, signer: Arc<EDSigner>) -> Self {
         let block_proposal = BlockProposal { author, hash };
-        let signature = signer.sign(block_proposal.hash.as_ref());
+        let signature = block_proposal.sign(&*signer);
 
         Self { block_proposal, signature }
     }
@@ -101,9 +221,9 @@ impl SignedBlockProposal {
     }
 }
 
-pub struct NightshadeTask {
+pub struct NightshadeTask<T> {
     /// Signer.
-    signer: Arc<BlockSigner>,
+    signer: Option<Arc<T>>,
     /// Blocks from other authorities containing payloads. At the beginning of the consensus
     /// authorities only have their own block. It is required for an authority to endorse a block
     /// from other authority to have its block.
@@ -135,9 +255,9 @@ pub struct NightshadeTask {
     cooldown_delay: Option<Delay>,
 }
 
-impl NightshadeTask {
+impl<T: BLSSigner + EDSigner + 'static> NightshadeTask<T> {
     pub fn new(
-        signer: Arc<BlockSigner>,
+        signer: Option<Arc<T>>,
         inc_gossips: mpsc::Receiver<Gossip>,
         out_gossips: mpsc::Sender<Gossip>,
         control_receiver: mpsc::Receiver<Control>,
@@ -179,14 +299,16 @@ impl NightshadeTask {
     ) {
         let num_authorities = public_keys.len();
         info!(target: "nightshade", "Init nightshade for authority {}/{}, block {}, proposal {}", owner_uid, num_authorities, block_index, hash);
-        assert!(self.block_index.is_none() ||
-                    self.block_index.unwrap() < block_index ||
-                    self.proposals[owner_uid as usize].as_ref().unwrap().block_proposal.hash == hash,
-                "Reset without increasing block index: adversarial behavior");
+        assert!(
+            self.block_index.is_none()
+                || self.block_index.unwrap() < block_index
+                || self.proposals[owner_uid as usize].as_ref().unwrap().block_proposal.hash == hash,
+            "Reset without increasing block index: adversarial behavior"
+        );
 
         self.proposals = vec![None; num_authorities];
         self.proposals[owner_uid] =
-            Some(SignedBlockProposal::new(owner_uid, hash, self.signer.clone()));
+            Some(SignedBlockProposal::new(owner_uid, hash, self.signer.clone().expect(MUST_HAVE_A_SIGNER)));
         self.confirmed_proposals = vec![false; num_authorities];
         self.confirmed_proposals[owner_uid] = true;
         self.block_index = Some(block_index);
@@ -196,7 +318,7 @@ impl NightshadeTask {
             num_authorities,
             self.proposals[owner_uid].clone().unwrap().block_proposal,
             bls_public_keys,
-            self.signer.clone(),
+            self.signer.clone().expect(MUST_HAVE_A_SIGNER),
         ));
         self.consensus_reported = false;
 
@@ -214,14 +336,14 @@ impl NightshadeTask {
             self.nightshade.as_ref().unwrap().owner_id,
             message.receiver_id,
             GossipBody::NightshadeStateUpdate(Box::new(message)),
-            self.signer.clone(),
+            self.signer.clone().expect(MUST_HAVE_A_SIGNER),
             self.block_index.unwrap(),
         ));
     }
 
     fn send_gossip(&self, message: Gossip) {
         let copied_tx = self.out_gossips.clone();
-        tokio::spawn(copied_tx.send(message).map(|_| ()).map_err(|e| {
+        tokio_utils::spawn(copied_tx.send(message).map(|_| ()).map_err(|e| {
             error!("Error sending state. {:?}", e);
         }));
     }
@@ -243,23 +365,26 @@ impl NightshadeTask {
                     if let Err(e) =
                         self.nightshade_as_mut_ref().update_state(message.sender_id, message.state)
                     {
-                        warn!(target: "nightshade", "{}", e);
+                        warn!(target: "nightshade", "Failed to update state: {}", e);
                     }
                 } else {
                     // Wait for confirmation from mempool,
                     // request was already sent when the proposal arrived.
+                    debug!(target: "nightshade", "Waiting for mempool confirmation for {} proposal, current proposals: {:?}", author, self.proposals);
                 }
             } else {
+                warn!(target: "nightshade", "Malicious gossip sender: {}, author: {}", author, message.sender_id);
                 // There is at least one malicious actor between the sender of this message
                 // and the original author of the payload. But we can't determine which is the bad actor.
             }
         } else {
+            debug!(target: "nightshade", "Gossip has missing proposal from {}", author);
             // TODO: This message is discarded if we haven't received the proposal yet.
             let gossip = Gossip::new(
                 self.owner_id(),
-                author,
+                message.sender_id,
                 GossipBody::PayloadRequest(vec![author]),
-                self.signer.clone(),
+                self.signer.clone().expect(MUST_HAVE_A_SIGNER),
                 self.block_index.unwrap(),
             );
             self.send_gossip(gossip);
@@ -273,6 +398,7 @@ impl NightshadeTask {
             return;
         }
         if !gossip.verify(&self.public_keys[gossip.sender_id]) {
+            debug!(target: "nightshade", "Node: {} invalid signature from {}", self.owner_id(), gossip.sender_id);
             return;
         }
 
@@ -296,20 +422,28 @@ impl NightshadeTask {
             self.nightshade.as_ref().unwrap().owner_id,
             receiver_id,
             GossipBody::PayloadReply(payloads),
-            self.signer.clone(),
+            self.signer.clone().expect(MUST_HAVE_A_SIGNER),
             self.block_index.unwrap(),
         );
         self.send_gossip(gossip);
     }
 
     fn request_payload_confirmation(&self, signed_payload: &SignedBlockProposal) {
-        debug!("owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}", self.nightshade.as_ref().unwrap().owner_id, self.block_index, signed_payload);
+        if self.block_index.is_none() {
+            return;
+        }
+        debug!(
+            "owner_uid={:?}, block_index={:?}, Request payload confirmation: {:?}",
+            self.nightshade.as_ref().unwrap().owner_id,
+            self.block_index,
+            signed_payload
+        );
         let authority = signed_payload.block_proposal.author;
         let hash = signed_payload.block_proposal.hash;
         let task = self.retrieve_payload_tx.clone().send((authority, hash)).map(|_| ()).map_err(
             move |_| error!("Failed to request confirmation for ({},{:?})", authority, hash),
         );
-        tokio::spawn(task);
+        tokio_utils::spawn(task);
     }
 
     fn receive_payloads(&mut self, sender_id: AuthorityId, payloads: Vec<SignedBlockProposal>) {
@@ -372,7 +506,7 @@ impl NightshadeTask {
     }
 }
 
-impl Stream for NightshadeTask {
+impl<T: BLSSigner + EDSigner + 'static> Stream for NightshadeTask<T> {
     type Item = ();
     type Error = ();
 
@@ -460,7 +594,7 @@ impl Stream for NightshadeTask {
                             self.consensus_reported = true;
 
                             if self.confirmed_proposals[outcome.author] {
-                                tokio::spawn(
+                                tokio_utils::spawn(
                                     self.consensus_sender
                                         .clone()
                                         .send(ConsensusBlockProposal {
@@ -504,8 +638,8 @@ impl Stream for NightshadeTask {
     }
 }
 
-pub fn spawn_nightshade_task(
-    signer: Arc<BlockSigner>,
+pub fn spawn_nightshade_task<T: BLSSigner + EDSigner + 'static>(
+    signer: Option<Arc<T>>,
     inc_gossip_rx: mpsc::Receiver<Gossip>,
     out_gossip_tx: mpsc::Sender<Gossip>,
     consensus_tx: mpsc::Sender<ConsensusBlockProposal>,

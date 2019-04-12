@@ -5,7 +5,7 @@ use bencher::Bencher;
 
 use nightshade::nightshade::BareState;
 use primitives::hash::hash_struct;
-use primitives::signer::{BlockSigner, InMemorySigner};
+use primitives::crypto::signer::{BLSSigner, InMemorySigner};
 
 fn bare_state() -> BareState {
     BareState::new(0, hash_struct(&0))
@@ -17,7 +17,7 @@ fn bs_encode(bench: &mut Bencher) {
 }
 
 fn sign(bench: &mut Bencher) {
-    let signer = InMemorySigner::default();
+    let signer = InMemorySigner::from_random();
     let bs = bare_state();
 
     bench.iter(|| signer.bls_sign(&bs.bs_encode()))

@@ -1,9 +1,10 @@
+use std::convert::TryInto;
 use std::sync::Arc;
 
 use client::Client;
+use primitives::logging::pretty_utf8;
 use primitives::types::BlockId;
 use primitives::utils::bs58_vec2str;
-use primitives::logging::pretty_utf8;
 
 use crate::types::{
     CallViewFunctionRequest, CallViewFunctionResponse, GetBlockByHashRequest,
@@ -13,15 +14,17 @@ use crate::types::{
     TransactionResultResponse, ViewAccountRequest, ViewAccountResponse, ViewStateRequest,
     ViewStateResponse,
 };
-use primitives::transaction::SignedTransaction;
 use primitives::transaction::verify_transaction_signature;
+use primitives::transaction::SignedTransaction;
 
-pub struct HttpApi {
-    client: Arc<Client>,
+const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
+
+pub struct HttpApi<T> {
+    client: Arc<Client<T>>,
 }
 
-impl HttpApi {
-    pub fn new(client: Arc<Client>) -> HttpApi {
+impl<T> HttpApi<T> {
+    pub fn new(client: Arc<Client<T>>) -> Self {
         HttpApi { client }
     }
 }
@@ -32,14 +35,11 @@ pub enum RPCError {
     ServiceUnavailable(String),
 }
 
-impl HttpApi {
+impl<T> HttpApi<T> {
     pub fn view_account(&self, r: &ViewAccountRequest) -> Result<ViewAccountResponse, String> {
         debug!(target: "near-rpc", "View account {}", r.account_id);
         let mut state_update = self.client.shard_client.get_state_update();
-        match self.client.shard_client.trie_viewer.view_account(
-            &mut state_update,
-            &r.account_id
-        ) {
+        match self.client.shard_client.trie_viewer.view_account(&mut state_update, &r.account_id) {
             Ok(r) => Ok(ViewAccountResponse {
                 account_id: r.account,
                 amount: r.amount,
@@ -67,16 +67,13 @@ impl HttpApi {
         let mut logs = vec![];
         match self.client.shard_client.trie_viewer.call_function(
             state_update,
-            best_index, 
+            best_index,
             &r.contract_account_id,
             &r.method_name,
             &r.args,
             &mut logs,
         ) {
-            Ok(result) => Ok(CallViewFunctionResponse {
-                result,
-                logs,
-            }),
+            Ok(result) => Ok(CallViewFunctionResponse { result, logs }),
             Err(e) => Err(e.to_string()),
         }
     }
@@ -85,11 +82,15 @@ impl HttpApi {
         &self,
         r: &SubmitTransactionRequest,
     ) -> Result<SubmitTransactionResponse, RPCError> {
-        let transaction: SignedTransaction = r.transaction.clone().into();
+        let transaction: SignedTransaction =
+            r.transaction.clone().try_into().map_err(RPCError::BadRequest)?;
         debug!(target: "near-rpc", "Received transaction {:#?}", transaction);
         let originator = transaction.body.get_originator();
         let mut state_update = self.client.shard_client.get_state_update();
-        let public_keys = self.client.shard_client.trie_viewer
+        let public_keys = self
+            .client
+            .shard_client
+            .trie_viewer
             .get_public_keys_for_account(&mut state_update, &originator)
             .map_err(RPCError::BadRequest)?;
         if !verify_transaction_signature(&transaction, &public_keys) {
@@ -98,14 +99,21 @@ impl HttpApi {
             return Err(RPCError::BadRequest(msg));
         }
         let hash = transaction.get_hash();
-        self.client.shard_client.pool.add_transaction(transaction).map_err(RPCError::BadRequest)?;
+        if let Some(pool) = &self.client.shard_client.pool {
+            pool.write().expect(POISONED_LOCK_ERR).add_transaction(transaction).map_err(RPCError::BadRequest)?;
+        } else {
+            // TODO(822): Relay to validator.
+        }
         Ok(SubmitTransactionResponse { hash })
     }
 
     pub fn view_state(&self, r: &ViewStateRequest) -> Result<ViewStateResponse, String> {
         debug!(target: "near-rpc", "View state {:?}", r.contract_account_id);
         let state_update = self.client.shard_client.get_state_update();
-        let result = self.client.shard_client.trie_viewer
+        let result = self
+            .client
+            .shard_client
+            .trie_viewer
             .view_state(&state_update, &r.contract_account_id)?;
         let response = ViewStateResponse {
             contract_account_id: r.contract_account_id.clone(),
@@ -177,7 +185,7 @@ impl HttpApi {
             Some(info) => Ok(TransactionInfoResponse {
                 transaction: info.transaction.into(),
                 block_index: info.block_index,
-                result: info.result
+                result: info.result,
             }),
             None => Err(RPCError::NotFound),
         }

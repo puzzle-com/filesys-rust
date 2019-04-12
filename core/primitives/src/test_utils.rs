@@ -1,4 +1,5 @@
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -6,13 +7,15 @@ use exonum_sodiumoxide::crypto::sign::ed25519::{keypair_from_seed, Seed};
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 
-use crate::aggregate_signature::{BlsPublicKey, BlsSecretKey};
 use crate::beacon::SignedBeaconBlock;
 use crate::block_traits::{SignedBlock, SignedHeader};
 use crate::chain::{SignedShardBlock, SignedShardBlockHeader};
+use crate::crypto::aggregate_signature::{BlsPublicKey, BlsSecretKey};
+use crate::crypto::signature::{PublicKey, SecretKey};
+use crate::crypto::signer::{AccountSigner, BLSSigner, EDSigner, InMemorySigner};
 use crate::hash::CryptoHash;
-use crate::signature::{PublicKey, SecretKey};
-use crate::signer::InMemorySigner;
+use crate::transaction::{SignedTransaction, TransactionBody};
+use crate::types::{AccountId, AuthorityId, AuthorityStake};
 
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
@@ -50,9 +53,15 @@ impl InMemorySigner {
 }
 
 pub trait TestSignedBlock: SignedBlock {
-    fn sign_all(&mut self, signers: &Vec<Arc<InMemorySigner>>) {
-        for (i, signer) in signers.iter().enumerate() {
-            self.add_signature(&self.sign(signer.clone()), i);
+    fn sign_all<T: BLSSigner + AccountSigner>(
+        &mut self,
+        authorities: &HashMap<AuthorityId, AuthorityStake>,
+        signers: &Vec<Arc<T>>,
+    ) {
+        let signer_map: HashMap<AccountId, Arc<T>> =
+            signers.iter().map(|s| (s.account_id(), s.clone())).collect();
+        for (i, authority_stake) in authorities.iter() {
+            self.add_signature(&self.sign(&*signer_map[&authority_stake.account_id]), *i);
         }
     }
 }
@@ -73,3 +82,10 @@ impl SignedShardBlock {
 
 impl TestSignedBlock for SignedShardBlock {}
 impl TestSignedBlock for SignedBeaconBlock {}
+
+impl TransactionBody {
+    pub fn sign(self, signer: &EDSigner) -> SignedTransaction {
+        let signature = signer.sign(self.get_hash().as_ref());
+        SignedTransaction::new(signature, self)
+    }
+}

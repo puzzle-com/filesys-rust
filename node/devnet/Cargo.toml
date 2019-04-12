@@ -1,12 +1,11 @@
 [package]
 name = "devnet"
 version = "0.1.0"
-authors = ["puzzle<puzzle@puzzle.org>"]
 edition = "2018"
 
 [dependencies]
 futures = "0.1.25"
-tokio = "0.1.11"
+tokio = "0.1"
 log = "0.4"
 
 client = { path = "../../node/client" }
@@ -16,8 +15,9 @@ coroutines = { path = "../coroutines" }
 node-http = { path = "../http" }
 primitives = { path = "../../core/primitives" }
 chain = { path = "../../core/chain" }
+storage = { path = "../../core/storage" }
+tokio-utils = { path = "../tokio-utils" }
 
 [dev-dependencies]
 alphanet = { path = "../alphanet" }
 testlib = { path = "../../test-utils/testlib" }
-

@@ -1,7 +1,7 @@
 [package]
 name = "mempool"
 version = "0.1.0"
-authors = ["puzzle<puzzle@puzzle.org>"]
+authors = ["Near Inc <hello@nearprotocol.com>"]
 edition = "2018"
 
 [dependencies]
@@ -10,10 +10,15 @@ serde_derive = "1.0"
 futures = "0.1.25"
 tokio = "0.1"
 log = "0.4"
+protobuf = "2.4"
 
 primitives = { path = "../primitives" }
 chain = { path = "../../core/chain" }
 storage = { path = "../../core/storage"}
 node-runtime = { path = "../../node/runtime" }
 nightshade = { path = "../nightshade" }
+near-protos = { path = "../protos" }
 
+[dev-dependencies]
+rand = "0.6"
+configs = { path = "../../node/configs" }

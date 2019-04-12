@@ -2,74 +2,50 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use bencher::{Bencher, benchmark_group, benchmark_main};
+use bencher::{benchmark_group, benchmark_main, Bencher};
 use serde_json::Value;
 
-use client::{BlockProductionResult, Client};
-use configs::{ChainSpec, ClientConfig};
+use client::Client;
+use configs::{
+    chain_spec::{AuthorityRotation, DefaultIdType},
+    ChainSpec, ClientConfig,
+};
 use primitives::block_traits::SignedBlock;
 use primitives::chain::ChainPayload;
 use primitives::hash::CryptoHash;
-use primitives::signer::{BlockSigner, InMemorySigner, TransactionSigner};
+use primitives::crypto::signer::{InMemorySigner, EDSigner};
 use primitives::transaction::{
     CreateAccountTransaction, DeployContractTransaction, FinalTransactionStatus,
     FunctionCallTransaction, SendMoneyTransaction, SignedTransaction, TransactionBody,
 };
+use primitives::types::Nonce;
 
 const TMP_DIR: &str = "./tmp_bench/";
 const ALICE_ACC_ID: &str = "alice.near";
 const BOB_ACC_ID: &str = "bob.near";
 const CONTRACT_ID: &str = "contract.near";
-const DEFAULT_BALANCE: u64 = 10_000_000;
-const DEFAULT_STAKE: u64 = 1_000_000;
 
-fn get_chain_spec() -> (ChainSpec, Arc<InMemorySigner>, Arc<InMemorySigner>) {
-    let genesis_wasm = include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-    let alice_signer = InMemorySigner::from_seed(ALICE_ACC_ID, ALICE_ACC_ID);
-    let bob_signer = InMemorySigner::from_seed(BOB_ACC_ID, BOB_ACC_ID);
-    let spec = ChainSpec {
-        accounts: vec![
-            (
-                ALICE_ACC_ID.to_string(),
-                alice_signer.public_key().to_readable(),
-                DEFAULT_BALANCE,
-                DEFAULT_STAKE,
-            ),
-            (BOB_ACC_ID.to_string(), bob_signer.public_key().to_readable(), DEFAULT_BALANCE, DEFAULT_STAKE),
-        ],
-        initial_authorities: vec![(
-            ALICE_ACC_ID.to_string(),
-            alice_signer.public_key().to_readable(),
-            alice_signer.bls_public_key().to_readable(),
-            DEFAULT_STAKE,
-        )],
-        genesis_wasm,
-        beacon_chain_epoch_length: 1,
-        beacon_chain_num_seats_per_slot: 1,
-        boot_nodes: vec![],
-    };
-    (spec, Arc::new(alice_signer), Arc::new(bob_signer))
-}
-
-fn get_client(test_name: &str) -> (Client, Arc<InMemorySigner>, Arc<InMemorySigner>) {
+fn get_client(test_name: &str) -> (Client<InMemorySigner>, Arc<InMemorySigner>, Arc<InMemorySigner>) {
     let mut base_path = Path::new(TMP_DIR).to_owned();
     base_path.push(test_name);
     if base_path.exists() {
         std::fs::remove_dir_all(base_path.clone()).unwrap();
     }
-    let mut cfg = ClientConfig::default();
+    let mut cfg = ClientConfig::default_devnet();
     cfg.base_path = base_path;
-    let (chain_spec, alice_signer, bob_signer) = get_chain_spec();
+    let (chain_spec, signers) =
+        ChainSpec::testing_spec(DefaultIdType::Named, 2, 2, AuthorityRotation::ProofOfAuthority);
+    let alice_signer = signers[0].clone();
+    let bob_signer = signers[1].clone();
     cfg.chain_spec = chain_spec;
     cfg.log_level = log::LevelFilter::Off;
-    (Client::new(&cfg), alice_signer, bob_signer)
+    (Client::new(&cfg, Some(alice_signer.clone())), alice_signer, bob_signer)
 }
 
 /// Produces blocks by consuming batches of transactions. Runs until all receipts are processed.
-fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client) {
+fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client<InMemorySigner>) {
     let mut prev_receipt_blocks = vec![];
     let mut transactions;
-    let mut next_block_idx = client.shard_client.chain.best_index() + 1;
     loop {
         if batches.is_empty() {
             if prev_receipt_blocks.is_empty() {
@@ -83,19 +59,14 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
             transactions = batches.remove(0);
         }
         let payload = ChainPayload::new(transactions, prev_receipt_blocks);
-        if let BlockProductionResult::Success(_beacon_block, shard_block) =
-            client.try_produce_block(next_block_idx, payload)
-        {
-            prev_receipt_blocks = client
-                .shard_client
-                .get_receipt_block(shard_block.index(), shard_block.shard_id())
-                .map(|b| vec![b])
-                .unwrap_or(vec![]);
-        } else {
-            panic!("Block production should always succeed");
-        }
-
-        next_block_idx += 1;
+        let (beacon_block, shard_block, shard_extra) = client.prepare_block(payload);
+        let (_beacon_block, shard_block) =
+            client.try_import_produced(beacon_block, shard_block, shard_extra);
+        prev_receipt_blocks = client
+            .shard_client
+            .get_receipt_block(shard_block.index(), shard_block.shard_id())
+            .map(|b| vec![b])
+            .unwrap_or(vec![]);
     }
 }
 
@@ -103,7 +74,7 @@ fn produce_blocks(batches: &mut Vec<Vec<SignedTransaction>>, client: &mut Client
 /// Returns transactions and the new nonce.
 fn deploy_test_contract(
     deployer_signer: Arc<InMemorySigner>,
-    mut next_nonce: u64,
+    mut next_nonce: Nonce,
 ) -> (SignedTransaction, SignedTransaction, u64) {
     // Create account for the contract.
     let contract_signer = Arc::new(InMemorySigner::from_seed(CONTRACT_ID, CONTRACT_ID));
@@ -114,7 +85,7 @@ fn deploy_test_contract(
         amount: 10,
         public_key: contract_signer.public_key().0[..].to_vec(),
     };
-    let t_create = TransactionBody::CreateAccount(t_create).sign(deployer_signer);
+    let t_create = TransactionBody::CreateAccount(t_create).sign(&*deployer_signer);
     next_nonce += 1;
 
     // Create contract deployment transaction.
@@ -124,7 +95,7 @@ fn deploy_test_contract(
         contract_id: CONTRACT_ID.to_string(),
         wasm_byte_array: wasm_binary.to_vec(),
     };
-    let t_deploy = TransactionBody::DeployContract(t_deploy).sign(contract_signer);
+    let t_deploy = TransactionBody::DeployContract(t_deploy).sign(&*contract_signer);
     next_nonce += 1;
 
     (t_create, t_deploy, next_nonce)
@@ -133,7 +104,7 @@ fn deploy_test_contract(
 /// Create transaction that calls the contract.
 fn call_contract(
     deployer_signer: Arc<InMemorySigner>,
-    mut next_nonce: u64,
+    mut next_nonce: Nonce,
     method_name: &str,
     args: &str,
 ) -> (SignedTransaction, u64) {
@@ -145,13 +116,13 @@ fn call_contract(
         args: args.as_bytes().to_vec(),
         amount: 0,
     };
-    let t = TransactionBody::FunctionCall(t).sign(deployer_signer);
+    let t = TransactionBody::FunctionCall(t).sign(&*deployer_signer);
     next_nonce += 1;
     (t, next_nonce)
 }
 
 /// Verifies that the status of all submitted transactions is `Complete`.
-fn verify_transaction_statuses(hashes: &Vec<CryptoHash>, client: &mut Client) {
+fn verify_transaction_statuses<T>(hashes: &Vec<CryptoHash>, client: &mut Client<T>) {
     for h in hashes {
         assert_eq!(
             client.shard_client.get_transaction_final_result(h).status,
@@ -195,7 +166,7 @@ fn money_transaction_blocks(bench: &mut Bencher) {
                 signer = bob_signer.clone();
                 bob_nonce += 1;
             }
-            let t = TransactionBody::SendMoney(t).sign(signer);
+            let t = TransactionBody::SendMoney(t).sign(&*signer);
             hashes.push(t.body.get_hash());
             batch.push(t);
         }
@@ -230,7 +201,8 @@ fn heavy_storage_blocks(bench: &mut Bencher) {
     for _block_idx in 0..num_blocks {
         let mut batch = vec![];
         for _transaction_idx in 0..transactions_per_block {
-            let (t, _next_nonce) = call_contract(alice_signer.clone(), next_nonce, method_name, args);
+            let (t, _next_nonce) =
+                call_contract(alice_signer.clone(), next_nonce, method_name, args);
             next_nonce = _next_nonce;
             hashes.push(t.body.get_hash());
             batch.push(t);

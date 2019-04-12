@@ -7,25 +7,28 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 
-use std::{cmp, env, fs};
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::prelude::*;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
+use std::{cmp, env, fs};
 
 use env_logger::Builder;
 use log::Level::Debug;
 
 use beacon::beacon_chain::BeaconClient;
 use configs::ClientConfig;
-use primitives::aggregate_signature::BlsPublicKey;
 use primitives::beacon::{SignedBeaconBlock, SignedBeaconBlockHeader};
 use primitives::block_traits::{SignedBlock, SignedHeader};
-use primitives::chain::{ChainPayload, SignedShardBlock};
-use primitives::hash::{CryptoHash, hash_struct};
-use primitives::signer::InMemorySigner;
+use primitives::chain::{
+    ChainPayload, MissingPayloadRequest, MissingPayloadResponse, SignedShardBlock,
+};
+use primitives::crypto::aggregate_signature::BlsPublicKey;
+use primitives::crypto::signer::{BLSSigner, EDSigner, AccountSigner};
+use primitives::hash::{hash_struct, CryptoHash};
 use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIndex};
+use shard::ShardBlockExtraInfo;
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
 
@@ -45,7 +48,7 @@ pub enum BlockProductionResult {
 }
 
 /// Result of client trying to import a block.
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum BlockImportingResult {
     /// The block was successfully imported, and `new_index` is the new index. Note, the `new_index`
     /// can be greater by any amount than the index of the imported block, if it was a pending
@@ -54,16 +57,15 @@ pub enum BlockImportingResult {
     /// The block was not imported, because its parent is missing. Blocks with indices
     /// `missing_indices` should be fetched. This block might and might not have been already
     /// recorded as pending.
-    MissingParent { orphan_hash: CryptoHash, missing_indices: Vec<BlockIndex> },
-    /// The block was not imported, because it is already in the blockchain.
-    AlreadyImported,
+    MissingParent { missing_indices: Vec<BlockIndex> },
     /// The block is not formed correctly or doesn't have enough signatures
     InvalidBlock,
+    /// All blocks that we tried to import were already known.
+    KnownBlocks,
 }
 
-pub struct Client {
-    pub account_id: AccountId,
-    pub signer: Arc<InMemorySigner>,
+pub struct Client<T> {
+    pub signer: Option<Arc<T>>,
 
     pub shard_client: ShardClient,
     pub beacon_client: BeaconClient,
@@ -99,8 +101,9 @@ fn configure_logging(log_level: log::LevelFilter) {
     builder.filter(None, other_log_level);
 
     if let Ok(lvl) = env::var("RUST_LOG") {
-        builder.parse(&lvl);
+        builder.parse_filters(&lvl);
     }
+    builder.default_format_timestamp_nanos(true);
     if let Err(e) = builder.try_init() {
         warn!(target: "client", "Failed to reinitialize the log level {}", e);
     }
@@ -110,7 +113,6 @@ pub const DEFAULT_BASE_PATH: &str = ".";
 pub const DEFAULT_LOG_LEVEL: log::LevelFilter = log::LevelFilter::Info;
 
 const STORAGE_PATH: &str = "storage/db";
-const KEY_STORE_PATH: &str = "storage/keystore";
 
 fn get_storage_path(base_path: &Path) -> String {
     let mut storage_path = base_path.to_owned();
@@ -122,8 +124,8 @@ fn get_storage_path(base_path: &Path) -> String {
     storage_path.to_str().unwrap().to_owned()
 }
 
-impl Client {
-    pub fn new_with_signer(config: &ClientConfig, signer: Arc<InMemorySigner>) -> Self {
+impl<T: AccountSigner + BLSSigner + EDSigner + 'static> Client<T> {
+    pub fn new(config: &ClientConfig, signer: Option<Arc<T>>) -> Self {
         configure_logging(config.log_level);
 
         let storage_path = get_storage_path(&config.base_path);
@@ -135,12 +137,11 @@ impl Client {
 
         let chain_spec = &config.chain_spec;
         let shard_client = ShardClient::new(signer.clone(), chain_spec, shard_storage);
-        info!(target: "client", "Genesis root: {:?}", shard_client.genesis_hash());
+        info!(target: "client", "[{:?}] Genesis root: {:?}", config.account_id, shard_client.genesis_hash());
         let genesis = SignedBeaconBlock::genesis(shard_client.genesis_hash());
         let beacon_client = BeaconClient::new(genesis, &chain_spec, beacon_storage);
 
         Self {
-            account_id: config.account_id.clone(),
             signer,
             shard_client,
             beacon_client,
@@ -149,15 +150,9 @@ impl Client {
         }
     }
 
-    pub fn new(config: &ClientConfig) -> Self {
-        let mut key_file_path = config.base_path.to_path_buf();
-        key_file_path.push(KEY_STORE_PATH);
-        let signer = Arc::new(InMemorySigner::from_key_file(
-            config.account_id.clone(),
-            key_file_path.as_path(),
-            config.public_key.clone(),
-        ));
-        Self::new_with_signer(config, signer)
+    #[inline]
+    pub fn account_id(&self) -> Option<AccountId> {
+        self.signer.clone().map(|s| s.account_id())
     }
 
     /// Get indices of the blocks that we are missing.
@@ -172,36 +167,22 @@ impl Client {
             // There are no pending blocks.
             vec![]
         } else {
-            let best_index = self.beacon_client.chain.best_index();
-            guard
+            let blocks_present: HashSet<BlockIndex> = guard
                 .iter()
                 .filter_map(|b| if b.index() > best_index { Some(b.index()) } else { None })
-                .collect()
+                .collect();
+            blocks_present.iter().map(|i| i - 1).filter(|i| !blocks_present.contains(i)).collect()
         }
     }
 
     // Block producer code.
-    pub fn try_produce_block(
+    pub fn prepare_block(
         &self,
-        block_index: BlockIndex,
         payload: ChainPayload,
-    ) -> BlockProductionResult {
-        let current_index = self.beacon_client.chain.best_index();
-        if block_index < current_index + 1 {
-            // The consensus is too late, the block was already imported.
-            return BlockProductionResult::LateConsensus { current_index };
-        }
-
+    ) -> (SignedBeaconBlock, SignedShardBlock, ShardBlockExtraInfo) {
+        // TODO: payload should provide parent hash.
         let last_beacon_block = self.beacon_client.chain.best_block().unwrap();
         let last_shard_block = self.shard_client.chain.best_block().unwrap();
-        let next_index = current_index + 1;
-        let authorities = self
-            .beacon_client
-            .authority
-            .read()
-            .expect(POISONED_LOCK_ERR)
-            .get_authorities(next_index)
-            .expect("Authorities should be present for given block to produce it");
         let mut receipts = payload.receipts;
         // Get previous receipts from the same shard:
         let receipt_block = self
@@ -210,39 +191,38 @@ impl Client {
         if let Some(receipt) = receipt_block {
             receipts.push(receipt);
         }
-        let (mut shard_block, shard_block_extra) = self.shard_client.prepare_new_block(
+        let (shard_block, shard_block_extra) = self.shard_client.prepare_new_block(
             last_beacon_block.body.header.shard_block_hash,
             receipts,
             payload.transactions,
         );
-        let mut block = SignedBeaconBlock::new(
+        let beacon_block = SignedBeaconBlock::new(
             last_beacon_block.index() + 1,
             last_beacon_block.block_hash(),
-            shard_block_extra.authority_proposals,
+            shard_block_extra.authority_proposals.clone(),
             shard_block.block_hash(),
         );
-        // TODO(645): Remove this and fill in correctly when collecting final BLS.
-        block.signature.authority_mask.resize(authorities.len(), true);
-        shard_block.signature.authority_mask.resize(authorities.len(), true);
-        let shard_block_signature = shard_block.sign(self.signer.clone());
-        let block_signature = block.sign(self.signer.clone());
-        for (i, authority) in authorities.iter().enumerate() {
-            if authority.account_id == self.signer.account_id {
-                shard_block.add_signature(&shard_block_signature, i);
-                block.add_signature(&block_signature, i);
-            }
-        }
 
+        (beacon_block, shard_block, shard_block_extra)
+    }
+
+    /// Try importing blocks for which we have produced the state ourselves.
+    pub fn try_import_produced(
+        &self,
+        beacon_block: SignedBeaconBlock,
+        shard_block: SignedShardBlock,
+        shard_block_extra: ShardBlockExtraInfo,
+    ) -> (SignedBeaconBlock, SignedShardBlock) {
         assert!(
-            !self.beacon_client.chain.is_known_block(&block.hash),
+            !self.beacon_client.chain.is_known_block(&beacon_block.hash),
             "The block was already imported, before we managed to produce it.\
              This should never happen, because block production is atomic."
         );
 
-        info!(target: "client", "Producing block index: {:?}, account_id={:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
-            block.index(),
-            self.account_id,
-            block.hash,
+        info!(target: "client", "[{:?}] Producing block index: {:?}, beacon hash = {:?}, shard hash = {:?}, #tx={}, #receipts={}",
+              self.account_id(),
+            beacon_block.index(),
+            beacon_block.hash,
             shard_block.hash,
             shard_block.body.transactions.len(),
             shard_block.body.receipts.len(),
@@ -272,16 +252,16 @@ impl Client {
             shard_block_extra.largest_tx_nonce,
             shard_block_extra.new_receipts,
         );
-        self.beacon_client.chain.insert_block(block.clone());
+        self.beacon_client.chain.insert_block(beacon_block.clone());
         io::stdout().flush().expect("Could not flush stdout");
         // Just produced blocks should be the best in the blockchain.
         assert_eq!(self.shard_client.chain.best_hash(), shard_block.hash);
-        assert_eq!(self.beacon_client.chain.best_hash(), block.hash);
+        assert_eq!(self.beacon_client.chain.best_hash(), beacon_block.hash);
         // Update the authority.
-        self.update_authority(&block.header());
+        self.update_authority(&beacon_block.header());
         // Try apply pending blocks that were unlocked by this block, if any.
         self.try_apply_pending_blocks();
-        BlockProductionResult::Success(Box::new(block), Box::new(shard_block))
+        (beacon_block, shard_block)
     }
 
     fn blocks_to_process(&self) -> (Vec<SignedBeaconBlock>, HashSet<SignedBeaconBlock>) {
@@ -325,56 +305,59 @@ impl Client {
     /// the best block then it returns it, otherwise it returns None.
     pub fn try_import_blocks(
         &self,
-        beacon_block: SignedBeaconBlock,
-        shard_block: SignedShardBlock,
+        blocks: Vec<(SignedBeaconBlock, SignedShardBlock)>,
     ) -> BlockImportingResult {
-        // Check if this block was either already added, or it is already pending, or it has
-        // invalid signature.
-        let hash = beacon_block.block_hash();
-        info!(target: "client", "Importing block index: {:?}, account_id={:?}, beacon = {:?}, shard = {:?}",
-              beacon_block.body.header.index,
-              self.account_id,
-              beacon_block.hash, shard_block.hash);
-        if self.beacon_client.chain.is_known_block(&hash) {
-            return BlockImportingResult::AlreadyImported;
-        }
-        if !Client::verify_block_hash(&beacon_block, &shard_block) {
-            return BlockImportingResult::InvalidBlock;
-        }
-        // TODO get_authority_keys panics if block index is too high
-        let bls_keys = self.get_authority_keys(beacon_block.index());
-        if !beacon_block.signature.verify(&bls_keys, beacon_block.hash.as_ref())
-            || !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref())
-        {
-            error!(target: "client", "Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
-                   shard_block.block_hash(), beacon_block.block_hash(),
-                   beacon_block.signature.authority_count(),
-                   shard_block.signature.authority_count());
-            // TODO enable when we sign blocks with second BLS
-            if false {
+        let best_block_hash = self.beacon_client.chain.best_hash();
+        let mut has_not_known = false;
+        for (beacon_block, shard_block) in blocks {
+            // Check if this block was either already added, or it is already pending, or it has
+            // invalid signature. Exits function even if single block is invalid.
+            let hash = beacon_block.block_hash();
+            if self.beacon_client.chain.is_known_block(&hash) {
+                continue;
+            }
+            info!(target: "client", "[{:?}] Importing block index: {:?}, beacon = {:?}, shard = {:?}",
+                  self.account_id(),
+                  beacon_block.body.header.index,
+                  beacon_block.hash, shard_block.hash);
+            has_not_known = true;
+            if !Client::<T>::verify_block_hash(&beacon_block, &shard_block) {
                 return BlockImportingResult::InvalidBlock;
             }
+            let mut bls_keys = self.get_authority_keys(beacon_block.index());
+            // TODO(763): Because get_authority_keys return empty array if block index is too high, we just try to apply pending blocks and retry.
+            // This is a bit suboptimal behavior (for example importing in reverse won't work properly), design here a better mechanics.
+            if bls_keys.is_empty() {
+                // We hit block index that doesn't have yet computed authorities.
+                self.try_apply_pending_blocks();
+                // Let's try again.
+                bls_keys = self.get_authority_keys(beacon_block.index());
+                if bls_keys.is_empty() {
+                    // Not much we can do. Ignore this block.
+                    continue;
+                }
+            }
+            if !beacon_block.signature.verify(&bls_keys, beacon_block.hash.as_ref())
+                || !shard_block.signature.verify(&bls_keys, shard_block.hash.as_ref())
+            {
+                error!(target: "client", "[{:?}] Importing a block with an incorrect signature ({:?}, {:?}); signers: ({:?},{:?})",
+                           self.account_id(),
+                           beacon_block.block_hash(), shard_block.block_hash(),
+                           beacon_block.signature.authority_mask,
+                           shard_block.signature.authority_mask);
+                return BlockImportingResult::InvalidBlock;
+            }
+            self.pending_shard_blocks.write().expect(POISONED_LOCK_ERR).insert(shard_block);
+            self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(beacon_block);
         }
-
-        if self.pending_beacon_blocks.read().expect(POISONED_LOCK_ERR).contains(&hash) {
-            return BlockImportingResult::MissingParent {
-                orphan_hash: hash,
-                missing_indices: self.get_missing_indices(),
-            };
-        }
-
-        self.pending_shard_blocks.write().expect(POISONED_LOCK_ERR).insert(shard_block);
-        self.pending_beacon_blocks.write().expect(POISONED_LOCK_ERR).insert(beacon_block);
-        let best_block_hash = self.beacon_client.chain.best_hash();
 
         self.try_apply_pending_blocks();
         let new_best_block_header = self.beacon_client.chain.best_header();
 
-        if new_best_block_header.block_hash() == best_block_hash {
-            BlockImportingResult::MissingParent {
-                orphan_hash: hash,
-                missing_indices: self.get_missing_indices(),
-            }
+        if !has_not_known {
+            BlockImportingResult::KnownBlocks
+        } else if new_best_block_header.block_hash() == best_block_hash {
+            BlockImportingResult::MissingParent { missing_indices: self.get_missing_indices() }
         } else {
             BlockImportingResult::Success { new_index: new_best_block_header.index() }
         }
@@ -421,7 +404,7 @@ impl Client {
             .authority
             .write()
             .expect(POISONED_LOCK_ERR)
-            .process_block_header(beacon_header);
+            .process_block_header(&beacon_header);
     }
 
     /// Returns own AuthorityId and AuthorityId to Authority Stake map for the given block number.
@@ -444,17 +427,12 @@ impl Client {
         let mut id_to_authority_map = HashMap::new();
         let mut owner_id = None;
         for (index, authority) in next_authorities.into_iter().enumerate() {
-            if authority.account_id == self.account_id {
+            if Some(authority.account_id.clone()) == self.account_id() {
                 owner_id = Some(index);
             }
             id_to_authority_map.insert(index, authority);
         }
         (owner_id, id_to_authority_map)
-    }
-
-    pub fn get_recent_uid_to_authority_map(&self) -> HashMap<AuthorityId, AuthorityStake> {
-        let index = self.beacon_client.chain.best_index() + 1;
-        self.get_uid_to_authority_map(index).1
     }
 
     /// Fetch "coupled" blocks by hash.
@@ -505,21 +483,29 @@ impl Client {
     /// Fetch transaction / receipts by hash from mempool.
     pub fn fetch_payload(
         &self,
-        _transaction_hashes: Vec<CryptoHash>,
-        _receipt_hashes: Vec<CryptoHash>,
-    ) -> Result<ChainPayload, String> {
-        Ok(ChainPayload::new(vec![], vec![]))
+        missing_payload_request: MissingPayloadRequest,
+    ) -> Result<MissingPayloadResponse, String> {
+        match &self.shard_client.pool {
+            Some(pool) => match pool.write().expect(POISONED_LOCK_ERR).fetch_payload(missing_payload_request) {
+                Some(response) => Ok(response),
+                None => Err("No payload available".to_string()),
+            },
+            None => Err("Not a validator node".to_string()),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use configs::ChainSpec;
-    use node_runtime::test_utils::generate_test_chain_spec;
+    use configs::{
+        chain_spec::{AuthorityRotation, DefaultIdType},
+        ChainSpec,
+    };
     use primitives::block_traits::SignedBlock;
     use primitives::chain::SignedShardBlockHeader;
-    use primitives::signer::{BlockSigner, TransactionSigner};
+    use primitives::serialize::Encode;
     use primitives::test_utils::TestSignedBlock;
+    use primitives::crypto::signer::InMemorySigner;
 
     use crate::test_utils::get_client_from_cfg;
 
@@ -529,6 +515,7 @@ mod tests {
         prev_beacon_block: &SignedBeaconBlockHeader,
         prev_shard_block: &SignedShardBlockHeader,
         count: u32,
+        authorities: &HashMap<AuthorityId, AuthorityStake>,
         signers: &Vec<Arc<InMemorySigner>>,
     ) -> Vec<(SignedBeaconBlock, SignedShardBlock)> {
         let (mut beacon_block, mut shard_block) =
@@ -536,14 +523,14 @@ mod tests {
         let mut result = vec![];
         for _ in 0..count {
             let mut new_shard_block = SignedShardBlock::empty(&shard_block);
-            new_shard_block.sign_all(signers);
+            new_shard_block.sign_all(authorities, signers);
             let mut new_beacon_block = SignedBeaconBlock::new(
                 beacon_block.index() + 1,
                 beacon_block.hash,
                 vec![],
                 new_shard_block.hash,
             );
-            new_beacon_block.sign_all(signers);
+            new_beacon_block.sign_all(authorities, signers);
             beacon_block = new_beacon_block.header();
             shard_block = new_shard_block.header();
             result.push((new_beacon_block, new_shard_block));
@@ -552,18 +539,54 @@ mod tests {
     }
 
     #[test]
-    fn test_block_catchup() {
-        let (chain_spec, signers) = generate_test_chain_spec();
+    fn test_block_fetch() {
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            3,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
         let client = get_client_from_cfg(&chain_spec, signers[0].clone());
 
+        let (_, authorities) = client.get_uid_to_authority_map(1);
         let blocks = make_coupled_blocks(
             &client.beacon_client.chain.best_header(),
             &client.shard_client.chain.best_header(),
             10,
+            &authorities,
+            &signers,
+        );
+        assert_eq!(
+            client.try_import_blocks(blocks.clone()),
+            BlockImportingResult::Success { new_index: 10 }
+        );
+        let fetched_blocks = client.fetch_blocks_range(1, 10).unwrap();
+        for i in 0..blocks.len() {
+            assert_eq!(blocks[i].0.encode().unwrap(), fetched_blocks[i].0.encode().unwrap());
+            assert_eq!(blocks[i].1.encode().unwrap(), fetched_blocks[i].1.encode().unwrap());
+        }
+    }
+
+    #[test]
+    fn test_block_reverse_catchup() {
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            3,
+            1,
+            AuthorityRotation::ProofOfAuthority,
+        );
+        let client = get_client_from_cfg(&chain_spec, signers[0].clone());
+
+        let (_, authorities) = client.get_uid_to_authority_map(1);
+        let blocks = make_coupled_blocks(
+            &client.beacon_client.chain.best_header(),
+            &client.shard_client.chain.best_header(),
+            10,
+            &authorities,
             &signers,
         );
         for i in (0..10).rev() {
-            client.try_import_blocks(blocks[i].0.clone(), blocks[i].1.clone());
+            client.try_import_blocks(vec![(blocks[i].0.clone(), blocks[i].1.clone())]);
         }
         assert_eq!(client.beacon_client.chain.best_index(), 10);
     }
@@ -591,55 +614,55 @@ mod tests {
     /// X + 1, X + 2, ... etc which it cannot incorporate into the blockchain because it lacks
     fn test_catchup_through_production() {
         // Set-up genesis and chain spec.
-        let genesis_wasm =
-            include_bytes!("../../../core/wasm/runtest/res/wasm_with_mem.wasm").to_vec();
-        let alice_signer = InMemorySigner::from_seed("alice.near", "alice.near");
-        let bob_signer = InMemorySigner::from_seed("bob.near", "bob.near");
-        let chain_spec = ChainSpec {
-            accounts: vec![
-                ("alice.near".to_string(), alice_signer.public_key().to_readable(), 100, 10),
-                ("bob.near".to_string(), bob_signer.public_key().to_readable(), 100, 10),
-            ],
-            initial_authorities: vec![
-                (
-                    "alice.near".to_string(),
-                    alice_signer.public_key().to_readable(),
-                    alice_signer.bls_public_key().to_readable(),
-                    50,
-                ),
-                (
-                    "bob.near".to_string(),
-                    bob_signer.public_key().to_readable(),
-                    bob_signer.bls_public_key().to_readable(),
-                    50,
-                ),
-            ],
-            genesis_wasm,
-            beacon_chain_epoch_length: 2,
-            beacon_chain_num_seats_per_slot: 1,
-            boot_nodes: vec![],
-        };
-
+        let (chain_spec, signers) = ChainSpec::testing_spec(
+            DefaultIdType::Named,
+            2,
+            2,
+            AuthorityRotation::ProofOfAuthority,
+        );
+        let alice_signer = signers[0].clone();
+        let bob_signer = signers[1].clone();
         // Start both clients.
-        let alice_client = get_client_from_cfg(&chain_spec, Arc::new(alice_signer));
-        let bob_client = get_client_from_cfg(&chain_spec, Arc::new(bob_signer));
+        let alice_client = get_client_from_cfg(&chain_spec, alice_signer.clone());
+        let bob_client = get_client_from_cfg(&chain_spec, bob_signer.clone());
+        let (_, authorities) = alice_client.get_uid_to_authority_map(1);
+        let signers = vec![alice_signer, bob_signer];
 
         // First produce several blocks by Alice and Bob.
-        for i in 1..=5 {
-            alice_client.try_produce_block(i, ChainPayload::new(vec![], vec![])).unwrap();
-            bob_client.try_produce_block(i, ChainPayload::new(vec![], vec![])).unwrap();
+        for _ in 1..=5 {
+            let (mut beacon_block, mut shard_block, shard_extra) =
+                alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            beacon_block.sign_all(&authorities, &signers);
+            shard_block.sign_all(&authorities, &signers);
+            alice_client.try_import_produced(beacon_block, shard_block, shard_extra);
+            let (mut beacon_block, mut shard_block, shard_extra) =
+                bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            beacon_block.sign_all(&authorities, &signers);
+            shard_block.sign_all(&authorities, &signers);
+            bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
         }
 
         // Then Bob produces several blocks and Alice tries to import them except the first one.
-        bob_client.try_produce_block(6, ChainPayload::new(vec![], vec![])).unwrap();
-        for i in 7..=10 {
-            let (bb, sb) =
-                bob_client.try_produce_block(i, ChainPayload::new(vec![], vec![])).unwrap();
-            alice_client.try_import_blocks(bb, sb);
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
+        bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
+        for _ in 7..=10 {
+            let (mut beacon_block, mut shard_block, shard_extra) =
+                bob_client.prepare_block(ChainPayload::new(vec![], vec![]));
+            beacon_block.sign_all(&authorities, &signers);
+            shard_block.sign_all(&authorities, &signers);
+            let (bb, sb) = bob_client.try_import_produced(beacon_block, shard_block, shard_extra);
+            alice_client.try_import_blocks(vec![(bb, sb)]);
         }
 
         // Lastly, alice produces the missing block and is expected to progess to block 10.
-        alice_client.try_produce_block(6, ChainPayload::new(vec![], vec![])).unwrap();
+        let (mut beacon_block, mut shard_block, shard_extra) =
+            alice_client.prepare_block(ChainPayload::new(vec![], vec![]));
+        beacon_block.sign_all(&authorities, &signers);
+        shard_block.sign_all(&authorities, &signers);
+        alice_client.try_import_produced(beacon_block, shard_block, shard_extra);
         assert_eq!(alice_client.beacon_client.chain.best_index(), 10);
         assert_eq!(alice_client.shard_client.chain.best_index(), 10);
     }

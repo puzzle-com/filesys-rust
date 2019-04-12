@@ -1,15 +1,17 @@
-use crate::types::{AccountId, PeerId};
-use crate::hash::CryptoHash;
 use crate::chain::ChainState;
-use std::borrow::Borrow;
-use std::fmt;
-use std::hash::{Hash, Hasher};
-use std::net::SocketAddr;
-use std::convert::TryFrom;
-use std::iter::FromIterator;
+use crate::hash::CryptoHash;
+use crate::types::{AccountId, PeerId};
+use crate::utils::{proto_to_result, proto_to_type, to_string_value};
 use near_protos::network as network_proto;
-use protobuf::{SingularPtrField, RepeatedField};
-use protobuf::well_known_types::{StringValue, UInt32Value};
+use protobuf::well_known_types::UInt32Value;
+use protobuf::{RepeatedField, SingularPtrField};
+use std::borrow::Borrow;
+use std::convert::{Into, TryFrom, TryInto};
+use std::fmt;
+use std::fmt::{Display, Formatter};
+use std::hash::{Hash, Hasher};
+use std::iter::FromIterator;
+use std::net::SocketAddr;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PeerAddr {
@@ -22,9 +24,17 @@ impl PeerAddr {
         let addr_id: Vec<_> = addr_id.split('/').collect();
         let (addr, id) = (addr_id[0], addr_id[1]);
         Ok(PeerAddr {
-            id: String::into(id.to_string()),
-            addr: addr.parse::<SocketAddr>().map_err(|e| format!("Error parsing address {:?}: {:?}", addr, e))?,
+            id: id.to_string().try_into()?,
+            addr: addr
+                .parse::<SocketAddr>()
+                .map_err(|e| format!("Error parsing address {:?}: {:?}", addr, e))?,
         })
+    }
+}
+
+impl Display for PeerAddr {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}/{}", self.addr, self.id)
     }
 }
 
@@ -34,7 +44,7 @@ impl TryFrom<PeerInfo> for PeerAddr {
     fn try_from(peer_info: PeerInfo) -> Result<Self, Self::Error> {
         match peer_info.addr {
             Some(addr) => Ok(PeerAddr { id: peer_info.id, addr }),
-            None => Err(format!("PeerInfo {:?} doesn't have an address", peer_info))
+            None => Err(format!("PeerInfo {:?} doesn't have an address", peer_info)),
         }
     }
 }
@@ -89,41 +99,28 @@ impl From<PeerAddr> for PeerInfo {
     }
 }
 
-impl From<network_proto::PeerInfo> for PeerInfo {
-    fn from(proto: network_proto::PeerInfo) -> Self {
-        let addr = proto.addr
-            .into_option()
-            .and_then(|s| s.value.parse::<SocketAddr>().ok());
-        let account_id = proto.account_id.into_option().map(|s| s.value);
-        PeerInfo {
-            id: CryptoHash::from(proto.id),
-            addr,
-            account_id,
-        }
-    }
-}
+impl TryFrom<network_proto::PeerInfo> for PeerInfo {
+    type Error = String;
 
-fn to_string_value(s: String) -> StringValue {
-    let mut res = StringValue::new();
-    res.set_value(s);
-    res
+    fn try_from(proto: network_proto::PeerInfo) -> Result<Self, Self::Error> {
+        let addr = proto.addr.into_option().and_then(|s| s.value.parse::<SocketAddr>().ok());
+        let account_id = proto.account_id.into_option().map(|s| s.value);
+        Ok(PeerInfo { id: CryptoHash::try_from(proto.id)?, addr, account_id })
+    }
 }
 
 impl From<PeerInfo> for network_proto::PeerInfo {
     fn from(peer_info: PeerInfo) -> network_proto::PeerInfo {
         let id = peer_info.id;
-        let addr = SingularPtrField::from_option(peer_info.addr.map(|s| {
-            to_string_value(format!("{}", s))
-        }));
-        let account_id = SingularPtrField::from_option(
-            peer_info.account_id.map(to_string_value)
+        let addr = SingularPtrField::from_option(
+            peer_info.addr.map(|s| to_string_value(format!("{}", s))),
         );
+        let account_id = SingularPtrField::from_option(peer_info.account_id.map(to_string_value));
         network_proto::PeerInfo {
             id: id.into(),
             addr,
             account_id,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -135,11 +132,12 @@ pub struct ConnectedInfo {
     pub chain_state: ChainState,
 }
 
-impl From<network_proto::ConnectedInfo> for ConnectedInfo {
-    fn from(proto: network_proto::ConnectedInfo) -> Self {
-        ConnectedInfo {
-            chain_state: proto.chain_state.unwrap().into()
-        }
+impl TryFrom<network_proto::ConnectedInfo> for ConnectedInfo {
+    type Error = String;
+
+    fn try_from(proto: network_proto::ConnectedInfo) -> Result<Self, Self::Error> {
+        proto_to_result(proto.chain_state)
+            .and_then(|state| Ok(ConnectedInfo { chain_state: state.try_into()? }))
     }
 }
 
@@ -147,8 +145,7 @@ impl From<ConnectedInfo> for network_proto::ConnectedInfo {
     fn from(connected_info: ConnectedInfo) -> network_proto::ConnectedInfo {
         network_proto::ConnectedInfo {
             chain_state: SingularPtrField::some(connected_info.chain_state.into()),
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -169,26 +166,29 @@ pub struct Handshake {
     pub connected_info: ConnectedInfo,
 }
 
-impl From<network_proto::HandShake> for Handshake {
-    fn from(proto: network_proto::HandShake) -> Self {
+impl TryFrom<network_proto::HandShake> for Handshake {
+    type Error = String;
+
+    fn try_from(proto: network_proto::HandShake) -> Result<Self, Self::Error> {
         let account_id = proto.account_id.into_option().map(|s| s.value);
         let listen_port = proto.listen_port.into_option().map(|v| v.value as u16);
-        Handshake {
+        let peers_info =
+            proto.peers_info.into_iter().map(TryInto::try_into).collect::<Result<Vec<_>, _>>()?;
+        let connected_info = proto_to_type(proto.connected_info)?;
+        Ok(Handshake {
             version: proto.version,
-            peer_id: proto.peer_id.into(),
+            peer_id: proto.peer_id.try_into()?,
             account_id,
             listen_port,
-            peers_info: proto.peers_info.into_iter().map(std::convert::Into::into).collect(),
-            connected_info: proto.connected_info.unwrap().into(),
-        }
+            peers_info,
+            connected_info,
+        })
     }
 }
 
 impl From<Handshake> for network_proto::HandShake {
     fn from(hand_shake: Handshake) -> network_proto::HandShake {
-        let account_id = SingularPtrField::from_option(
-            hand_shake.account_id.map(to_string_value)
-        );
+        let account_id = SingularPtrField::from_option(hand_shake.account_id.map(to_string_value));
         let listen_port = SingularPtrField::from_option(hand_shake.listen_port.map(|v| {
             let mut res = UInt32Value::new();
             res.set_value(u32::from(v));
@@ -198,13 +198,12 @@ impl From<Handshake> for network_proto::HandShake {
             version: hand_shake.version,
             peer_id: hand_shake.peer_id.into(),
             peers_info: RepeatedField::from_iter(
-                hand_shake.peers_info.into_iter().map(std::convert::Into::into)
+                hand_shake.peers_info.into_iter().map(std::convert::Into::into),
             ),
             connected_info: SingularPtrField::some(hand_shake.connected_info.into()),
             account_id,
             listen_port,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
@@ -216,21 +215,26 @@ pub enum PeerMessage {
     Message(Vec<u8>),
 }
 
+impl TryFrom<network_proto::PeerMessage> for PeerMessage {
+    type Error = String;
 
-impl From<network_proto::PeerMessage> for PeerMessage {
-    fn from(proto: network_proto::PeerMessage) -> Self {
+    fn try_from(proto: network_proto::PeerMessage) -> Result<Self, Self::Error> {
         match proto.message_type {
             Some(network_proto::PeerMessage_oneof_message_type::hand_shake(hand_shake)) => {
-                PeerMessage::Handshake(hand_shake.into())
+                hand_shake.try_into().map(PeerMessage::Handshake)
             }
             Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip)) => {
-                let peer_info = gossip.info_gossip.into_iter().map(std::convert::Into::into).collect();
-                PeerMessage::InfoGossip(peer_info)
+                let peer_info = gossip
+                    .info_gossip
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(PeerMessage::InfoGossip(peer_info))
             }
             Some(network_proto::PeerMessage_oneof_message_type::message(message)) => {
-                PeerMessage::Message(message)
+                Ok(PeerMessage::Message(message))
             }
-            None => unreachable!()
+            None => unreachable!(),
         }
     }
 }
@@ -244,10 +248,9 @@ impl From<PeerMessage> for network_proto::PeerMessage {
             PeerMessage::InfoGossip(peers_info) => {
                 let gossip = network_proto::InfoGossip {
                     info_gossip: RepeatedField::from_iter(
-                        peers_info.into_iter().map(std::convert::Into::into)
+                        peers_info.into_iter().map(std::convert::Into::into),
                     ),
-                    unknown_fields: Default::default(),
-                    cached_size: Default::default(),
+                    ..Default::default()
                 };
                 Some(network_proto::PeerMessage_oneof_message_type::info_gossip(gossip))
             }
@@ -257,8 +260,7 @@ impl From<PeerMessage> for network_proto::PeerMessage {
         };
         network_proto::PeerMessage {
             message_type,
-            unknown_fields: Default::default(),
-            cached_size: Default::default(),
+            ..Default::default()
         }
     }
 }
