@@ -56,7 +56,7 @@ pub trait TestSignedBlock: SignedBlock {
     fn sign_all<T: BLSSigner + AccountSigner>(
         &mut self,
         authorities: &HashMap<AuthorityId, AuthorityStake>,
-        signers: &Vec<Arc<T>>,
+        signers: &[Arc<T>],
     ) {
         let signer_map: HashMap<AccountId, Arc<T>> =
             signers.iter().map(|s| (s.account_id(), s.clone())).collect();
@@ -86,6 +86,6 @@ impl TestSignedBlock for SignedBeaconBlock {}
 impl TransactionBody {
     pub fn sign(self, signer: &EDSigner) -> SignedTransaction {
         let signature = signer.sign(self.get_hash().as_ref());
-        SignedTransaction::new(signature, self)
+        SignedTransaction::new(signature, self, Some(signer.public_key()))
     }
 }

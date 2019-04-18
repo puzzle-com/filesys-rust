@@ -164,20 +164,20 @@ impl RawTrieNode {
 }
 
 impl RcTrieNode {
-    fn encode(data: &Vec<u8>, rc: u32) -> Result<Vec<u8>, std::io::Error> {
+    fn encode(data: &[u8], rc: u32) -> Result<Vec<u8>, std::io::Error> {
         let mut cursor = Cursor::new(Vec::new());
         cursor.write_all(data)?;
         cursor.write_u32::<LittleEndian>(rc)?;
         Ok(cursor.into_inner())
     }
 
-    fn decode_raw(bytes: &Vec<u8>) -> Result<(Vec<u8>, u32), std::io::Error> {
+    fn decode_raw(bytes: &[u8]) -> Result<(Vec<u8>, u32), std::io::Error> {
         let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
         let rc = cursor.read_u32::<LittleEndian>()?;
         Ok((bytes[..bytes.len() - 4].to_vec(), rc))
     }
 
-    fn decode(bytes: &Vec<u8>) -> Result<(RawTrieNode, u32), std::io::Error> {
+    fn decode(bytes: &[u8]) -> Result<(RawTrieNode, u32), std::io::Error> {
         let node = RawTrieNode::decode(&bytes[..bytes.len() - 4])?;
         let mut cursor = Cursor::new(&bytes[bytes.len() - 4..]);
         let rc = cursor.read_u32::<LittleEndian>()?;
@@ -851,7 +851,7 @@ mod tests {
     fn test_populate_trie(trie: &Trie, root: &CryptoHash, changes: TrieChanges) -> CryptoHash {
         let mut other_changes = changes.clone();
         let (db_changes, root) = trie.update(root, other_changes.drain(..));
-        trie.apply_changes(db_changes).is_ok();
+        trie.apply_changes(db_changes).unwrap();
         for (key, value) in changes {
             assert_eq!(trie.get(&root, &key), value);
         }
@@ -863,7 +863,7 @@ mod tests {
             changes.iter().map(|(key, _)| (key.clone(), None)).collect();
         let mut other_delete_changes = delete_changes.clone();
         let (db_changes, root) = trie.update(root, other_delete_changes.drain(..));
-        trie.apply_changes(db_changes).is_ok();
+        trie.apply_changes(db_changes).unwrap();
         for (key, _) in delete_changes {
             assert_eq!(trie.get(&root, &key), None);
         }
@@ -1007,14 +1007,14 @@ mod tests {
             (vec![99, 44, 100, 58, 58, 50, 51], Some(vec![1])),
         ];
         let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
-        trie.apply_changes(db_changes).is_ok();
+        trie.apply_changes(db_changes).unwrap();
 
         let mut changes = vec![
             (vec![99, 44, 100, 58, 58, 45, 49], None),
             (vec![99, 44, 100, 58, 58, 50, 52], None),
         ];
         let (db_changes, root) = trie.update(&root, changes.drain(..));
-        trie.apply_changes(db_changes).is_ok();
+        trie.apply_changes(db_changes).unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }
@@ -1029,14 +1029,14 @@ mod tests {
             (vec![3, 2, 3], Some(vec![1])),
         ];
         let (db_changes, root) = trie.update(&Trie::empty_root(), initial.drain(..));
-        trie.apply_changes(db_changes).is_ok();
+        trie.apply_changes(db_changes).unwrap();
         for r in trie.iter(&root).unwrap() {
             println!("{:?}", r.unwrap());
         }
 
         let mut changes = vec![(vec![1, 2, 3], None)];
         let (db_changes, root) = trie.update(&root, changes.drain(..));
-        trie.apply_changes(db_changes).is_ok();
+        trie.apply_changes(db_changes).unwrap();
         for r in trie.iter(&root).unwrap() {
             r.unwrap();
         }

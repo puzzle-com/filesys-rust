@@ -1,6 +1,7 @@
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::borrow::Borrow;
 
 use protobuf::well_known_types::BytesValue;
 use protobuf::SingularPtrField;
@@ -17,6 +18,7 @@ use crate::types::{
     StructSignature,
 };
 use crate::utils::{account_to_shard_id, proto_to_result};
+use crate::traits::ToBytes;
 
 pub type LogEntry = String;
 
@@ -456,13 +458,19 @@ impl TransactionBody {
 pub struct SignedTransaction {
     pub body: TransactionBody,
     pub signature: StructSignature,
+    // In case this TX uses AccessKey, it needs to provide the public_key
+    pub public_key: Option<PublicKey>,
     hash: CryptoHash,
 }
 
 impl SignedTransaction {
-    pub fn new(signature: StructSignature, body: TransactionBody) -> Self {
+    pub fn new(
+        signature: StructSignature,
+        body: TransactionBody,
+        public_key: Option<PublicKey>,
+    ) -> Self {
         let hash = body.get_hash();
-        Self { signature, body, hash }
+        Self { signature, body, public_key, hash }
     }
 
     pub fn get_hash(&self) -> CryptoHash {
@@ -477,7 +485,12 @@ impl SignedTransaction {
             receiver: AccountId::default(),
             amount: 0,
         });
-        SignedTransaction { signature: DEFAULT_SIGNATURE, body, hash: CryptoHash::default() }
+        SignedTransaction {
+            signature: DEFAULT_SIGNATURE,
+            body,
+            public_key: None,
+            hash: CryptoHash::default(),
+        }
     }
 }
 
@@ -531,13 +544,17 @@ impl TryFrom<transaction_proto::SignedTransaction> for SignedTransaction {
                 bytes = t.write_to_bytes();
                 TransactionBody::DeleteKey(DeleteKeyTransaction::from(t))
             }
-            None => unreachable!(),
+            None => return Err("No such transaction body type".to_string()),
         };
         let bytes = bytes.map_err(|e| format!("{}", e))?;
         let hash = hash(&bytes);
+        let public_key: Option<PublicKey> = t.public_key.into_option()
+            .map(|v| PublicKey::try_from(&v.value as &[u8]))
+            .transpose()
+            .map_err(|e| format!("{}", e))?;
         let signature: Signature =
             Signature::try_from(&t.signature as &[u8]).map_err(|e| format!("{}", e))?;
-        Ok(SignedTransaction { body, signature, hash })
+        Ok(SignedTransaction { body, signature, public_key, hash })
     }
 }
 
@@ -572,6 +589,11 @@ impl From<SignedTransaction> for transaction_proto::SignedTransaction {
         transaction_proto::SignedTransaction {
             body: Some(body),
             signature: tx.signature.as_ref().to_vec(),
+            public_key: SingularPtrField::from_option(tx.public_key.map(|v| {
+                let mut res = BytesValue::new();
+                res.set_value(v.to_bytes());
+                res
+            })),
             ..Default::default()
         }
     }
@@ -794,7 +816,7 @@ impl fmt::Debug for CallbackResult {
     }
 }
 
-#[derive(Hash, Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct ReceiptTransaction {
     // sender is the immediate predecessor
     pub originator: AccountId,
@@ -821,7 +843,7 @@ impl TryFrom<receipt_proto::ReceiptTransaction> for ReceiptTransaction {
             Some(receipt_proto::ReceiptTransaction_oneof_body::mana_accounting(accounting)) => {
                 accounting.try_into().map(ReceiptBody::ManaAccounting)
             }
-            None => unreachable!(),
+            None => Err("No such receipt body type".to_string()),
         };
         match body {
             Ok(body) => Ok(ReceiptTransaction {
@@ -858,6 +880,12 @@ impl From<ReceiptTransaction> for receipt_proto::ReceiptTransaction {
             body: Some(body),
             ..Default::default()
         }
+    }
+}
+
+impl Borrow<CryptoHash> for ReceiptTransaction {
+    fn borrow(&self) -> &CryptoHash {
+        &self.nonce
     }
 }
 
@@ -963,13 +991,17 @@ impl fmt::Debug for FinalTransactionResult {
 pub struct TransactionAddress {
     /// Block hash
     pub block_hash: CryptoHash,
-    /// Transaction index within the block
+    /// Transaction index within the block. If it is a receipt,
+    /// index is the index in the receipt block.
     pub index: usize,
+    /// Only for receipts. The shard that the receipt
+    /// block is supposed to go
+    pub shard_id: Option<ShardId>,
 }
 
 pub fn verify_transaction_signature(
     transaction: &SignedTransaction,
-    public_keys: &Vec<PublicKey>,
+    public_keys: &[PublicKey],
 ) -> bool {
     let hash = transaction.get_hash();
     let hash = hash.as_ref();
