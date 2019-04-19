@@ -6,6 +6,9 @@ extern crate hex_literal;
 extern crate log;
 extern crate primitives;
 
+extern crate cid;
+extern crate multihash;
+
 use std::sync::Arc;
 use std::sync::RwLock;
 
