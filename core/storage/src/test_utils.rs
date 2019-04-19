@@ -5,8 +5,6 @@ use crate::storages::shard::ShardChainStorage;
 use crate::storages::NUM_COLS;
 use crate::Trie;
 use std::sync::RwLock;
-
-use multihash::Hash;
 use cid::{Cid, Codec, Version};
 
 /// Creates one beacon storage and one shard storage using in-memory database.
@@ -31,7 +29,11 @@ pub fn use_cid()->Arc<Trie> {
 
     let data = cid.to_bytes();
     let out = Cid::from(data).unwrap();
-
+    let shard_storage = create_beacon_shard_storages().1;
     assert_eq!(cid, out);
+
+    Arc::new(Trie::new(shard_storage))
+
+
 
 }
