@@ -9,6 +9,7 @@ extern crate byteorder;
 extern crate primitives;
 use primitives::types::{AccountId, Balance, Mana, PromiseId, ReceiptId};
 
+
 #[derive(Default)]
 struct MyExt {
     storage: BTreeMap<Vec<u8>, Vec<u8>>,

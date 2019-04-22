@@ -741,5 +741,6 @@ mod tests {
         let payload = pool.pop_payload_snapshot(&snapshot_hash).unwrap();
         assert_eq!(payload.transactions.len(), BLOCK_SIZE as usize);
         assert!(payload.receipts.is_empty());
+
     }
 }

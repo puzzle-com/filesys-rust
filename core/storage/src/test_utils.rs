@@ -37,3 +37,18 @@ pub fn use_cid()->Arc<Trie> {
 
 
 }
+
+pub fn get_cid()->Arc<Trie>{
+
+    use cid::{Cid, Codec, Version};
+    let h = multihash::encode(multihash::Hash::SHA2256, b"beep boop").unwrap();
+
+    let cid = Cid::new(Codec::DagProtobuf, Version::V1, &h);
+
+    let data = cid.to_bytes();
+    let out = Cid::from(data).unwrap();
+    let shard_storage = create_beacon_shard_storages().1;
+    assert_eq!(cid, out);
+    Arc::new(Trie::new(shard_storage))
+
+}
