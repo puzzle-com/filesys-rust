@@ -8,6 +8,7 @@ edition = "2018"
 log = "0.4"
 parking_lot = "0.7.1"
 env_logger = "0.6.0"
+multihash = "~0.8.0"
 
 beacon = { path = "../beacon" }
 chain = { path = "../../core/chain" }
@@ -16,6 +17,7 @@ primitives = { path = "../../core/primitives" }
 shard = { path = "../shard" }
 storage = { path = "../../core/storage" }
 configs = { path = "../../node/configs" }
+cid = {path = "../../core/cid"}
 
 serde = "1.0"
 serde_derive = "1.0"

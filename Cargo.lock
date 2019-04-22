@@ -308,6 +308,15 @@ dependencies = [
 [[package]]
 name = "cid"
 version = "0.3.0"
+dependencies = [
+ "integer-encoding 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "multibase 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "multihash 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "cid"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "integer-encoding 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -336,9 +345,11 @@ dependencies = [
  "beacon 0.0.1",
  "bencher 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "chain 0.0.1",
+ "cid 0.3.0",
  "configs 0.1.0",
  "env_logger 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "multihash 0.8.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "node-runtime 0.0.1",
  "parking_lot 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "primitives 0.1.0",
