@@ -27,8 +27,8 @@ pub enum TransactionType {
 }
 
 impl Generator {
-    pub fn new(nodes: Vec<Arc<RwLock<dyn Node>>>) -> Self {
-        Self { nodes, nonces: Default::default() }
+    pub fn new(nodes: Vec<Arc<RwLock<dyn Node>>>, nonces: RwLock<HashMap<AccountId, u64>>) -> Self {
+        Self { nodes, nonces }
     }
 
     /// Increments nonce and returns it.
@@ -89,7 +89,7 @@ impl Generator {
             nonce: self.nonce(node),
             originator: Self::account_id(node),
             contract_id: Self::account_id(node),
-            method_name: "setKeyValue".as_bytes().to_vec(),
+            method_name: b"setKeyValue".to_vec(),
             args: format!("{{\"key\":\"{}\", \"value\":\"{}\"}}", key, value).as_bytes().to_vec(),
             amount: 1,
         };
@@ -104,7 +104,7 @@ impl Generator {
             nonce: self.nonce(node),
             originator: Self::account_id(node),
             contract_id: Self::account_id(node),
-            method_name: "getValueByKey".as_bytes().to_vec(),
+            method_name: b"getValueByKey".to_vec(),
             args: format!("{{\"key\":\"{}\"}}", key).as_bytes().to_vec(),
             amount: 1,
         };
@@ -118,7 +118,7 @@ impl Generator {
             nonce: self.nonce(node),
             originator: Self::account_id(node),
             contract_id: Self::account_id(node),
-            method_name: "heavy_storage_blocks".as_bytes().to_vec(),
+            method_name: b"heavy_storage_blocks".to_vec(),
             args: "{\"n\":1000}".as_bytes().to_vec(),
             amount: 1,
         };
