@@ -1,4 +1,5 @@
 /target
 /.idea
 chain/src/storage/db/*
+chain/storage/db/*
 **/*.rs.bk
