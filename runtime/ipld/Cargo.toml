@@ -6,4 +6,4 @@ readme = "README.md"
 license = "MIT"
 
 [dependencies]
-serde_cbor = { git = "https://github.com/pyfisch/cbor"}
+serde_cbor = { path = "../cbor" }

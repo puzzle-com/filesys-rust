@@ -13,11 +13,6 @@ path = "chain/src/main.rs"
 [dependencies]
 alphanet = { path = "./chain/alphanet" }
 
-[dependencies.filecoin-proofs]
-git = "https://github.com/idotial/rust-fil-proofs.git"
-
-[dependencies.storage-proofs]
-git = "https://github.com/idotial/rust-fil-proofs.git"
 
 [workspace]
 members = [
@@ -42,6 +37,7 @@ members = [
     "runtime/wasm",
     "runtime/wasm/runtest",
     "runtime/cid",
+    "runtime/ipld",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
