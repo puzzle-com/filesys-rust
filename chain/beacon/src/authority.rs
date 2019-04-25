@@ -411,6 +411,19 @@ mod test {
     }
 
     #[test]
+    fn test_validator_deposit(){
+        let num_authorities = 4;
+        let (chain_spec, _) = ChainSpec::testing_spec(
+            DefaultIdType::Enumerated,
+            num_authorities,
+            num_authorities,
+            AuthorityRotation::ProofOfAuthority,
+        );
+
+        let bc = test_blockchain(0, &chain_spec);
+    }
+
+    #[test]
     fn test_single_authority() {
         let chain_spec = ChainSpec::testing_spec(
             DefaultIdType::Named,
