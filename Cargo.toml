@@ -41,7 +41,7 @@ members = [
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
-    "nearmint/",
+    "filemint/",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
