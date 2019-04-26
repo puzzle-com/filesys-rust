@@ -1,4 +1,4 @@
-# NEARMint
+# FileMint
 
 NEAR application layer running with Tendermint consensus.
 
@@ -41,26 +41,26 @@ laddr = "tcp://0.0.0.0:3030"
 Start in one console tendermint (from any location if it was installed, or from directory you put binary into):
 
     tendermint node
-    
+
 Note, that if you want to reset state of tendermint that has already ran, use `tendermint unsafe_reset_all`.
 
 In the second console:
 
-    cargo run --package nearmint
-    
-Note, that if you want to reset state of nearmint that has already ran, use `rm -rf storage`.
-    
+    cargo run --package filemint
+
+Note, that if you want to reset state of filemint that has already ran, use `rm -rf storage`.
+
 ## Running local cluster
 
 Note, this is done way easier on Ubuntu and we will be working on simplifying it for Mac OS.
 
 Link `tendermint` binary to target/release folder
 
-    ln -s 
+    ln -s
 
 We use docker compose to spin up 4 node local cluster:
 
-    cargo run --release --package nearmint
+    cargo run --release --package filemint
     cd ops/local
     docker-compose up
 
@@ -84,8 +84,8 @@ To run single validator mode (e.g. DevNet mode), you can set Tendermint validato
 ```
 
 
-And then when running `nearmint` use `--devnet` flag, e.g. `cargo run --package nearmint -- --devnet` or `target/release/nearmint --devnet`.
-    
+And then when running `filemint` use `--devnet` flag, e.g. `cargo run --package filemint -- --devnet` or `target/release/filemint --devnet`.
+
 ## Interacting
 
 Use JSONRPC to send transaction:

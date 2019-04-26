@@ -1,7 +1,7 @@
 [package]
-name = "nearmint"
+name = "filemint"
 version = "0.1.0"
-authors = ["Near Inc <hello@nearprotocol.com>"]
+authors = ["FileSys Inc <hello@FileSys.com>"]
 edition = "2018"
 
 [dependencies]
@@ -12,11 +12,13 @@ protobuf = { version = "2.2.4", features = ["with-bytes"] }
 base64 = { version = "0.10.0" }
 serde_json = "1.0"
 clap = "2.32"
+tempdir = "0.3"
 
 primitives = { path = "../runtime/primitives" }
 near-protos = { path = "../runtime/protos" }
 storage = { path = "../runtime/storage" }
 node-runtime = { path = "../runtime/runtime" }
+verifier = { path = "../runtime/verifier" }
 
 
 [dev-dependencies]

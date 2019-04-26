@@ -42,9 +42,9 @@ members = [
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/testcgo",
-    "nearmint/",
     "ipfs-api",
     "ipfs-cli",
+    "filemint/",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",

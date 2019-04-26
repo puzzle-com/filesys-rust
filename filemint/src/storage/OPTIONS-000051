@@ -40,7 +40,7 @@
   manifest_preallocation_size=4194304
   error_if_exists=false
   skip_stats_update_on_db_open=false
-  max_open_files=256
+  max_open_files=512
   random_access_max_buffer_size=1048576
   use_fsync=false
   max_background_jobs=2
@@ -1058,6 +1058,78 @@
   compaction_style=kCompactionStyleLevel
   
 [TableOptions/BlockBasedTable "col12"]
+  block_align=false
+  format_version=2
+  whole_key_filtering=true
+  verify_compression=false
+  partition_filters=false
+  index_block_restart_interval=1
+  block_size_deviation=10
+  block_size=16384
+  pin_l0_filter_and_index_blocks_in_cache=true
+  block_restart_interval=16
+  filter_policy=nullptr
+  metadata_block_size=4096
+  no_block_cache=false
+  checksum=kCRC32c
+  read_amp_bytes_per_bit=8589934592
+  cache_index_and_filter_blocks=true
+  enable_index_compression=true
+  index_type=kBinarySearch
+  hash_index_allow_collision=true
+  cache_index_and_filter_blocks_with_high_priority=false
+  flush_block_policy_factory=FlushBlockBySizePolicyFactory
+  
+
+[CFOptions "col13"]
+  report_bg_io_stats=false
+  inplace_update_support=false
+  max_compaction_bytes=1677721600
+  disable_auto_compactions=false
+  write_buffer_size=2396745
+  bloom_locality=0
+  max_bytes_for_level_multiplier=10.000000
+  compaction_filter_factory=nullptr
+  optimize_filters_for_hits=false
+  target_file_size_base=67108864
+  max_write_buffer_number_to_maintain=0
+  hard_pending_compaction_bytes_limit=274877906944
+  paranoid_file_checks=false
+  memtable_prefix_bloom_size_ratio=0.000000
+  force_consistency_checks=false
+  max_write_buffer_number=6
+  ttl=0
+  max_bytes_for_level_multiplier_additional=1:1:1:1:1:1:1
+  level0_slowdown_writes_trigger=20
+  level_compaction_dynamic_level_bytes=true
+  compaction_options_fifo={allow_compaction=false;ttl=0;max_table_files_size=1073741824;}
+  inplace_update_num_locks=10000
+  level0_file_num_compaction_trigger=2
+  compression=kSnappyCompression
+  level0_stop_writes_trigger=36
+  num_levels=7
+  table_factory=BlockBasedTable
+  compression_per_level=
+  target_file_size_multiplier=1
+  min_write_buffer_number_to_merge=2
+  arena_block_size=303104
+  max_successive_merges=0
+  memtable_huge_page_size=0
+  compaction_pri=kByCompensatedSize
+  soft_pending_compaction_bytes_limit=68719476736
+  max_bytes_for_level_base=9586980
+  comparator=leveldb.BytewiseComparator
+  max_sequential_skip_in_iterations=8
+  bottommost_compression=kDisableCompressionOption
+  prefix_extractor=nullptr
+  memtable_insert_with_hint_prefix_extractor=nullptr
+  memtable_factory=SkipListFactory
+  compaction_filter=nullptr
+  compaction_options_universal={allow_trivial_move=false;stop_style=kCompactionStopStyleTotalSize;min_merge_width=2;compression_size_percent=-1;max_size_amplification_percent=200;max_merge_width=4294967295;size_ratio=1;}
+  merge_operator=nullptr
+  compaction_style=kCompactionStyleLevel
+  
+[TableOptions/BlockBasedTable "col13"]
   block_align=false
   format_version=2
   whole_key_filtering=true

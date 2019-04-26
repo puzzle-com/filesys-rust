@@ -11,7 +11,7 @@ NUM_NODES=${6:-2}
 echo "Starting ${NUM_NODES} nodes prefixed ${PREFIX} of ${IMAGE} on GCloud ${ZONE} zone..."
 
 set +e
-gcloud compute firewall-rules describe nearmint-instance > /dev/null 2>&1
+gcloud compute firewall-rules describe filemint-instance > /dev/null 2>&1
 INSTANCE_FIRE_WALL_EXISTS=$?
 gcloud compute disks describe ${PREFIX}-persistent-0  --zone ${ZONE} > /dev/null 2>&1
 STORAGE_EXISTS=$?
@@ -22,9 +22,9 @@ BOOTNODE_EXISTS=$?
 set -e
 
 if [[ ! ${INSTANCE_FIRE_WALL_EXISTS} -eq 0 ]]; then
-gcloud compute firewall-rules create nearmint-instance \
+gcloud compute firewall-rules create filemint-instance \
     --allow tcp:26656,tcp:3030 \
-    --target-tags=nearmint-instance
+    --target-tags=filemint-instance
 fi
 
 if [[ ! ${STORAGE_EXISTS} -eq 0 ]]; then
@@ -46,7 +46,7 @@ gcloud beta compute instances create-with-container ${PREFIX}-0 \
     --container-env NODE_KEY="53Mr7IhcJXu3019FX+Ra+VbxSQ5y2q+pknmM463jzoFzldWZb16dSYRxrhYrLRXe/UA0wR2zFy4c3fY5yDHjlA==" \
     --container-image ${IMAGE} \
     --zone ${ZONE} \
-    --tags=nearmint-instance \
+    --tags=filemint-instance \
     --disk name=${PREFIX}-persistent-0 \
     --container-mount-disk mount-path="/srv/near" \
     --boot-disk-size 200GB \

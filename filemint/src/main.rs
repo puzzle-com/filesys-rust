@@ -14,6 +14,7 @@ use protobuf::parse_from_bytes;
 
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::chain_spec::ChainSpec;
+//use node_runtime::console::{print_console};
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime};
 use primitives::crypto::signature::PublicKey;
@@ -29,7 +30,7 @@ const STORAGE_PATH: &str = "storage";
 
 
 /// Connector of NEAR Core with Tendermint.
-struct NearMint {
+struct FileMint {
     chain_spec: ChainSpec,
     runtime: Runtime,
     trie: Arc<Trie>,
@@ -53,7 +54,7 @@ fn get_storage_path(base_path: &Path) -> String {
     storage_path.to_str().unwrap().to_owned()
 }
 
-impl NearMint {
+impl FileMint {
     pub fn new(base_path: &Path, chain_spec: ChainSpec) -> Self {
         let (_, storage) = create_storage(&get_storage_path(base_path), 1);
         let storage = storage[0].clone();
@@ -101,7 +102,7 @@ impl NearMint {
             (genesis_root, 0)
         };
 
-        NearMint {
+        FileMint {
             chain_spec,
             runtime,
             trie,
@@ -122,7 +123,7 @@ fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
         .and_then(TryInto::try_into)
 }
 
-impl RuntimeAdapter for NearMint {
+impl RuntimeAdapter for FileMint {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), self.root);
         self.trie_viewer.view_account(&state_update, account_id)
@@ -147,7 +148,7 @@ impl RuntimeAdapter for NearMint {
     }
 }
 
-impl Application for NearMint {
+impl Application for FileMint {
     fn info(&mut self, req: &RequestInfo) -> ResponseInfo {
         info!("Info: {:?}", req);
         let mut resp = ResponseInfo::new();
@@ -308,7 +309,7 @@ impl Application for NearMint {
 
 fn main() {
     // Parse command line arguments.
-    let matches = App::new("Nearmint")
+    let matches = App::new("Filemint")
         .args(&[
             Arg::with_name("base_path")
                 .short("d")
@@ -327,6 +328,10 @@ fn main() {
                 .long("devnet")
                 .help("Run with DevNet validator configuration (single alice.near validator)")
                 .takes_value(false),
+            Arg::with_name("attach")
+                .long("attach")
+                .help("run in terminal in puzzle")
+                .takes_value(false),
             Arg::with_name("abci_address")
                 .short("a")
                 .long("abci-address")
@@ -338,8 +343,9 @@ fn main() {
         .get_matches();
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
     let chain_spec = if matches.is_present("devnet") {
+       // print_console();
         ChainSpec::default_devnet()
-    } else {
+    }else  {
         let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
         ChainSpec::from_file_or_default(&chain_spec_path, ChainSpec::default_poa())
     };
@@ -352,7 +358,7 @@ fn main() {
     builder.try_init().unwrap();
 
     // Fire it up!
-    abci::run(addr, NearMint::new(&base_path, chain_spec));
+    abci::run(addr, FileMint::new(&base_path, chain_spec));
 }
 
 #[cfg(test)]
@@ -373,9 +379,9 @@ mod tests {
     fn test_apply_block() {
         let tmp_dir = TempDir::new("apply_block").unwrap();
         let chain_spec = ChainSpec::default_devnet();
-        let mut nearmint = NearMint::new(tmp_dir.path(), chain_spec);
+        let mut filemint = FileMint::new(tmp_dir.path(), chain_spec);
         let req_init = RequestInitChain::new();
-        let resp_init = nearmint.init_chain(&req_init);
+        let resp_init = filemint.init_chain(&req_init);
         assert_eq!(resp_init.validators.len(), 1);
         let mut req_begin_block = RequestBeginBlock::new();
         let mut h = Header::new();
@@ -384,30 +390,30 @@ mod tests {
         last_block_id.hash = CryptoHash::default().as_ref().to_vec();
         h.set_last_block_id(last_block_id);
         req_begin_block.set_header(h);
-        nearmint.begin_block(&req_begin_block);
+        filemint.begin_block(&req_begin_block);
         let signer = InMemorySigner::from_seed("alice.near", "alice.near");
         let tx: near_protos::signed_transaction::SignedTransaction =
             TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&signer).into();
         let mut deliver_req = RequestDeliverTx::new();
         deliver_req.tx = tx.write_to_bytes().unwrap();
-        let deliver_resp = nearmint.deliver_tx(&deliver_req);
+        let deliver_resp = filemint.deliver_tx(&deliver_req);
         assert_eq!(deliver_resp.log, "");
         assert_eq!(deliver_resp.code, 0);
         let mut req_end_block = RequestEndBlock::new();
         req_end_block.height = 1;
-        nearmint.end_block(&req_end_block);
+        filemint.end_block(&req_end_block);
         let req_commit = RequestCommit::new();
-        nearmint.commit(&req_commit);
+        filemint.commit(&req_commit);
 
-        let result = nearmint.view_account(&"alice.near".to_string()).unwrap();
+        let result = filemint.view_account(&"alice.near".to_string()).unwrap();
         assert_eq!(result.amount, 999999999990);
-        let result = nearmint.view_account(&"bob.near".to_string()).unwrap();
+        let result = filemint.view_account(&"bob.near".to_string()).unwrap();
         assert_eq!(result.amount, 1000000000010);
-        assert_eq!(nearmint.height, 1);
+        assert_eq!(filemint.height, 1);
 
         let mut req_query = RequestQuery::new();
         req_query.path = "account/alice.near".to_string();
-        let resp_query = nearmint.query(&req_query);
+        let resp_query = filemint.query(&req_query);
         assert_eq!(resp_query.code, 0);
         let resp: AccountViewCallResult = serde_json::from_slice(&resp_query.value).unwrap();
         assert_eq!(resp.amount, 999999999990);
@@ -417,14 +423,20 @@ mod tests {
     fn test_invalid_transaction() {
         let tmp_dir = TempDir::new("invalid_tx").unwrap();
         let chain_spec = ChainSpec::default_devnet();
-        let mut nearmint = NearMint::new(tmp_dir.path(), chain_spec);
+        let mut filemint = FileMint::new(tmp_dir.path(), chain_spec);
         let fake_signature = StructSignature::try_from(&[0u8; 64] as &[u8]).unwrap();
         let body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);
         let invalid_tx: near_protos::signed_transaction::SignedTransaction =
             SignedTransaction::new(fake_signature, body, None).into();
         let mut req_tx = RequestCheckTx::new();
         req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
-        let resp_tx = nearmint.check_tx(&req_tx);
+        let resp_tx = filemint.check_tx(&req_tx);
         assert_eq!(resp_tx.code, 1);
+    }
+    #[test]
+    fn test_query() {
+        let mut req_query = RequestQuery::new();
+        req_query.path = "account/alice.near".to_string();
+        let resp_query = filemint.query(&req_query);
     }
 }

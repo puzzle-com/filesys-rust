@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::str;
 use std::time::Instant;
 
-use primitives::account::Account;
+use primitives::account::{AccessKey, Account};
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::{bs58_format, CryptoHash};
 use primitives::types::{AccountId, AccountingInfo, Balance, Nonce};
-use primitives::utils::{is_valid_account_id, key_for_account, key_for_code};
+use primitives::utils::{is_valid_account_id, key_for_access_key, key_for_account, key_for_code};
 use storage::{get, TrieUpdate};
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
@@ -35,7 +35,7 @@ pub struct AccountViewCallResult {
 impl TrieViewer {
     pub fn view_account(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<AccountViewCallResult, String> {
         if !is_valid_account_id(account_id) {
@@ -55,9 +55,22 @@ impl TrieViewer {
         }
     }
 
+    pub fn view_access_key(
+        &self,
+        state_update: &TrieUpdate,
+        account_id: &AccountId,
+        public_key: &PublicKey,
+    ) -> Result<Option<AccessKey>, String> {
+        if !is_valid_account_id(account_id) {
+            return Err(format!("Account ID '{}' is not valid", account_id));
+        }
+
+        Ok(get(state_update, &key_for_access_key(account_id, public_key)))
+    }
+
     pub fn get_public_keys_for_account(
         &self,
-        state_update: &mut TrieUpdate,
+        state_update: &TrieUpdate,
         account_id: &AccountId,
     ) -> Result<Vec<PublicKey>, String> {
         self.view_account(state_update, account_id).map(|account| account.public_keys)
@@ -73,7 +86,7 @@ impl TrieViewer {
         }
         let mut values = HashMap::default();
         let mut prefix = key_for_account(account_id);
-        prefix.append(&mut ACCOUNT_DATA_SEPARATOR.to_vec());
+        prefix.extend_from_slice(ACCOUNT_DATA_SEPARATOR);
         state_update.for_keys_with_prefix(&prefix, |key| {
             if let Some(value) = state_update.get(key) {
                 values.insert(key[prefix.len()..].to_vec(), value.to_vec());
@@ -97,10 +110,10 @@ impl TrieViewer {
         }
         let root = state_update.get_root();
         let code: ContractCode =
-            get(&mut state_update, &key_for_code(contract_id)).ok_or_else(|| {
+            get(&state_update, &key_for_code(contract_id)).ok_or_else(|| {
                 format!("account {} does not have contract code", contract_id.clone())
             })?;
-        let wasm_res = match get::<Account>(&mut state_update, &key_for_account(contract_id)) {
+        let wasm_res = match get::<Account>(&state_update, &key_for_account(contract_id)) {
             Some(account) => {
                 let empty_hash = CryptoHash::default();
                 let mut runtime_ext = RuntimeExt::new(

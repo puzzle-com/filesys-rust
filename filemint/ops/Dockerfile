@@ -27,8 +27,8 @@ ENV CARGO_TARGET_DIR=/tmp/target
 RUN --mount=type=cache,target=/tmp/target \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo build -p nearmint --release && \
-    cp /tmp/target/release/nearmint /usr/local/bin/ && \
+    cargo build -p filemint --release && \
+    cp /tmp/target/release/filemint /usr/local/bin/ && \
     cargo build -p keystore --release && \
     cp /tmp/target/release/keystore /usr/local/bin/ && \
     cargo build -p testlib --bin generate-test-spec --release && \
@@ -43,9 +43,9 @@ ENV TMHOME=/srv/near
 
 RUN ["tendermint", "init" ]
 
-COPY nearmint/ops/run_nearmint /usr/local/bin/run_nearmint
-COPY nearmint/ops/tendermint-config.toml ./config.toml
+COPY filemint/ops/run_filemint /usr/local/bin/run_filemint
+COPY filemint/ops/tendermint-config.toml ./config.toml
 
 ENTRYPOINT ["/sbin/my_init", "--"]
 
-CMD ["/usr/local/bin/run_nearmint"]
+CMD ["/usr/local/bin/run_filemint"]

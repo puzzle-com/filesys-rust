@@ -25,7 +25,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         public_key: node.signer().public_key.0[..].to_vec(),
         amount: 0,
     })
-    .sign(&*node.signer());
+        .sign(&*node.signer());
     let user = node.user();
     user.add_transaction(transaction).unwrap();
 
@@ -34,7 +34,7 @@ fn setup_test_contract(wasm_binary: &[u8]) -> RuntimeNode {
         contract_id: "test_contract".to_string(),
         wasm_byte_array: wasm_binary.to_vec(),
     })
-    .sign(&*node.signer());
+        .sign(&*node.signer());
     user.add_transaction(transaction).unwrap();
     node
 }
