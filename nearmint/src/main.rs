@@ -14,6 +14,7 @@ use protobuf::parse_from_bytes;
 
 use node_runtime::adapter::{query_client, RuntimeAdapter};
 use node_runtime::chain_spec::ChainSpec;
+//use node_runtime::console::{print_console};
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer};
 use node_runtime::{ApplyState, Runtime};
 use primitives::crypto::signature::PublicKey;
@@ -325,6 +326,10 @@ fn main() {
                 .long("devnet")
                 .help("Run with DevNet validator configuration (single alice.near validator)")
                 .takes_value(false),
+            Arg::with_name("attach")
+                .long("attach")
+                .help("run in terminal in puzzle")
+                .takes_value(false),
             Arg::with_name("abci_address")
                 .short("a")
                 .long("abci-address")
@@ -336,8 +341,9 @@ fn main() {
         .get_matches();
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
     let chain_spec = if matches.is_present("devnet") {
+       // print_console();
         ChainSpec::default_devnet()
-    } else {
+    }else  {
         let chain_spec_path = matches.value_of("chain_spec_file").map(PathBuf::from);
         ChainSpec::from_file_or_default(&chain_spec_path, ChainSpec::default_poa())
     };
@@ -424,5 +430,11 @@ mod tests {
         req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
         let resp_tx = nearmint.check_tx(&req_tx);
         assert_eq!(resp_tx.code, 1);
+    }
+    #[test]
+    fn test_query() {
+        let mut req_query = RequestQuery::new();
+        req_query.path = "account/alice.near".to_string();
+        let resp_query = nearmint.query(&req_query);
     }
 }

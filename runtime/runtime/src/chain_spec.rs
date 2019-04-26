@@ -146,6 +146,7 @@ impl ChainSpec {
     pub fn default_devnet() -> Self {
         Self::testing_spec(DefaultIdType::Named, 3, 1, AuthorityRotation::ProofOfAuthority).0
     }
+
 }
 
 // Some of the standard named identifiers that we use for testing.
