@@ -41,7 +41,10 @@ members = [
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "test-utils/testcgo",
     "nearmint/",
+    "ipfs-api",
+    "ipfs-cli",
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",

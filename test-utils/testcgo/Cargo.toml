@@ -1,0 +1,12 @@
+[package]
+name = "testcgo"
+version = "0.1.0"
+authors = ["luomijie <zhiwei-luo@hotmail.com>"]
+edition = "2018"
+
+build = "src/build.rs"
+
+[build-dependencies]
+dunce = "0.1.1"
+
+[dependencies]

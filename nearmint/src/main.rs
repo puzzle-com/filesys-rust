@@ -27,6 +27,7 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const DEFAULT_BASE_PATH: &str = "";
 const STORAGE_PATH: &str = "storage";
 
+
 /// Connector of NEAR Core with Tendermint.
 struct NearMint {
     chain_spec: ChainSpec,
@@ -48,6 +49,7 @@ fn get_storage_path(base_path: &Path) -> String {
         Ok(path) => info!("Opening storage database at {:?}", path),
         _ => info!("Could not resolve {:?} path", storage_path),
     };
+
     storage_path.to_str().unwrap().to_owned()
 }
 
