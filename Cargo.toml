@@ -42,8 +42,8 @@ members = [
     "test-utils/testlib",
     "test-utils/loadtester",
     "test-utils/testcgo",
-    "ipfs-api",
-    "ipfs-cli",
+    "filesys-api",
+    "filesys-cli",
     "filemint/",
 ]
 exclude = [
