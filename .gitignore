@@ -2,3 +2,4 @@
 /.idea
 chain/src/storage/db/*
 **/*.rs.bk
+study/*
