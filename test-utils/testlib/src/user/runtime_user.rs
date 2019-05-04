@@ -1,21 +1,25 @@
-use crate::user::{User, POISONED_LOCK_ERR};
 use crate::runtime_utils::to_receipt_block;
-use node_http::types::{GetBlocksByIndexRequest, SignedShardBlocksResponse};
+use crate::user::{User, POISONED_LOCK_ERR};
+use lazy_static::lazy_static;
 use node_runtime::state_viewer::{AccountViewCallResult, TrieViewer, ViewStateResult};
 use node_runtime::{ApplyState, Runtime};
 use primitives::chain::ReceiptBlock;
 use primitives::hash::CryptoHash;
+use primitives::receipt::ReceiptInfo;
 use primitives::transaction::{
     FinalTransactionResult, FinalTransactionStatus, ReceiptTransaction, SignedTransaction,
-    TransactionLogs, TransactionResult, TransactionStatus
+    TransactionLogs, TransactionResult, TransactionStatus,
 };
 use primitives::types::{AccountId, MerkleHash, Nonce};
-use shard::ReceiptInfo;
 use storage::{Trie, TrieUpdate};
 
+use node_runtime::ethereum::EthashProvider;
+use primitives::account::AccessKey;
+use primitives::crypto::signature::PublicKey;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
+use tempdir::TempDir;
 
 /// Mock client without chain, used in RuntimeUser and RuntimeNode
 pub struct MockClient {
@@ -43,10 +47,17 @@ pub struct RuntimeUser {
     pub receipts: RefCell<HashMap<CryptoHash, ReceiptTransaction>>,
 }
 
+lazy_static! {
+    static ref TEST_ETHASH_PROVIDER: Arc<Mutex<EthashProvider>> = Arc::new(Mutex::new(
+        EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path())
+    ));
+}
+
 impl RuntimeUser {
     pub fn new(account_id: &str, client: Arc<RwLock<MockClient>>) -> Self {
+        let ethash_provider = TEST_ETHASH_PROVIDER.clone();
         RuntimeUser {
-            trie_viewer: TrieViewer {},
+            trie_viewer: TrieViewer::new(ethash_provider),
             account_id: account_id.to_string(),
             nonce: Default::default(),
             client,
@@ -131,8 +142,8 @@ impl RuntimeUser {
 
 impl User for RuntimeUser {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
-        let mut state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
-        self.trie_viewer.view_account(&mut state_update, account_id)
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer.view_account(&state_update, account_id)
     }
 
     fn view_state(&self, account_id: &AccountId) -> Result<ViewStateResult, String> {
@@ -201,10 +212,8 @@ impl User for RuntimeUser {
         Some(ReceiptInfo { receipt, result: transaction_result, block_index: Default::default() })
     }
 
-    fn get_shard_blocks_by_index(
-        &self,
-        _r: GetBlocksByIndexRequest,
-    ) -> Result<SignedShardBlocksResponse, String> {
-        unimplemented!("get_shard_blocks_by_index should not be implemented for RuntimeUser");
+    fn get_access_key(&self, public_key: &PublicKey) -> Result<Option<AccessKey>, String> {
+        let state_update = self.client.read().expect(POISONED_LOCK_ERR).get_state_update();
+        self.trie_viewer.view_access_key(&state_update, &self.account_id, public_key)
     }
 }

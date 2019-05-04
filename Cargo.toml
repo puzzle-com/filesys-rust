@@ -16,35 +16,21 @@ alphanet = { path = "./chain/alphanet" }
 
 [workspace]
 members = [
-    "chain/chain",
-    "chain/mempool",
-    "chain/nightshade",
-    "chain/alphanet",
-    "chain/beacon",
-    "chain/client",
-    "chain/configs",
-    "chain/consensus",
-    "chain/coroutines",
-    "chain/devnet",
-    "chain/network",
-    "chain/shard",
-    "chain/http",
-    "chain/tokio-utils",
     "protos/builder",
     "runtime/primitives",
     "runtime/storage",
     "runtime/runtime",
     "runtime/wasm",
     "runtime/wasm/runtest",
-    "runtime/cid",
-    "runtime/ipld",
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
-    "test-utils/testcgo",
+    "runtime/cid",
+    "runtime/ipld",
     "filesys-api",
     "filesys-cli",
-    "filemint/",
+    "filesysmint/",
+
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
@@ -55,18 +41,15 @@ lazy_static = "1.2.0"
 log = "0.4.6"
 rand = "0.6"
 serde_json = "1.0.0"
+reqwest = "0.9"
 
-devnet = { path = "./chain/devnet" }
-alphanet = { path = "./chain/alphanet" }
 keystore = { path = "./test-utils/keystore" }
-node-http = { path = "./chain/http" }
 primitives = { path = "./runtime/primitives" }
 storage = { path = "./runtime/storage" }
-network = { path = "./chain/network" }
-configs = { path = "./chain/configs" }
-client = { path = "./chain/client" }
 testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
+near-protos = { path = "./runtime/protos" }
+filesysmint = { path = "./filesysmint" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.
@@ -78,3 +61,4 @@ opt-level = 3 # pairing library is too slow to use in debug
 [features]
 expensive_tests = []
 regression_tests = []
+old_tests = []

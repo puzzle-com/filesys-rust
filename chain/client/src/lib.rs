@@ -7,6 +7,10 @@ extern crate parking_lot;
 extern crate primitives;
 extern crate serde;
 
+extern crate cid;
+extern crate multihash;
+use cid::{Cid, Codec, Version};
+
 use std::collections::{HashMap, HashSet};
 use std::io;
 use std::io::prelude::*;
@@ -31,8 +35,6 @@ use primitives::types::{AccountId, AuthorityId, AuthorityStake, BlockId, BlockIn
 use shard::ShardBlockExtraInfo;
 use shard::{get_all_receipts, ShardClient};
 use storage::create_storage;
-
-use cid::{Cid, Codec, Version};
 
 pub mod test_utils;
 
@@ -125,15 +127,24 @@ fn get_storage_path(base_path: &Path) -> String {
     };
     // add cid example code
     let h = multihash::encode(multihash::Hash::SHA2256, b"beep boop").unwrap();
+
     let cid = Cid::new(Codec::DagProtobuf, Version::V1, &h);
+
     let data = cid.to_bytes();
     let out = Cid::from(data).unwrap();
+
     assert_eq!(cid, out);
+
     let s = cid.to_string();
     let out2 = Cid::from(&s[..]).unwrap();
+
     assert_eq!(cid, out2);
+
+
     info!("Output string to cid is {:?}", out2);
+
     //end add cid example code
+
     storage_path.to_str().unwrap().to_owned()
 }
 

@@ -8,7 +8,7 @@ edition = "2018"
 log = "0.4"
 parking_lot = "0.7.1"
 env_logger = "0.6.0"
-multihash = "~0.8.0"
+multihash = "*"
 
 beacon = { path = "../beacon" }
 chain = { path = "../../chain/chain" }

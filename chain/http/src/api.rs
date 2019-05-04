@@ -104,7 +104,7 @@ fn decode_transaction(value: &serde_json::Value) -> Result<SignedTransaction, RP
     let data = base64::decode(
         value.as_str().ok_or_else(|| RPCError::BadRequest("Param should be bytes".to_string()))?,
     )
-        .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?;
+    .map_err(|e| RPCError::BadRequest(format!("Failed to decode base64: {}", e)))?;
     let transaction = parse_from_bytes::<near_protos::signed_transaction::SignedTransaction>(&data)
         .map_err(|e| RPCError::BadRequest(format!("Failed to parse protobuf: {}", e)))?;
     transaction.try_into().map_err(RPCError::BadRequest)
