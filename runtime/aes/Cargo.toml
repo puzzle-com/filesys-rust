@@ -1,0 +1,7 @@
+[package]
+name = "aes"
+version = "0.1.0"
+authors = ["rooat <welling1234@gmail.com>"]
+
+[dependencies]
+arrayref = "0.3.3"

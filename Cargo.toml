@@ -17,6 +17,7 @@ alphanet = { path = "./chain/alphanet" }
 [workspace]
 members = [
     "protos/builder",
+    "runtime/aes",
     "runtime/primitives",
     "runtime/storage",
     "runtime/runtime",
