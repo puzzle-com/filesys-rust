@@ -12,6 +12,7 @@ path = "chain/src/main.rs"
 
 [dependencies]
 alphanet = { path = "./chain/alphanet" }
+filesys-ipfs-api = { path = "./runtime/handler" }
 
 
 [workspace]

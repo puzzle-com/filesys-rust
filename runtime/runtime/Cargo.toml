@@ -21,6 +21,7 @@ primitives = { path = "../../runtime/primitives" }
 storage = { path = "../../runtime/storage" }
 verifier = { path = "../../runtime/verifier" }
 wasm = { path = "../../runtime/wasm" }
+tempdir = "0.3"
 
 [features]
 test-utils = []
@@ -30,7 +31,6 @@ bencher = "0.1.5"
 ethereum-rlp = "0.2"
 ethereum-block = "0.3"
 ethereum-hexutil = "0.2"
-tempdir = "0.3"
 
 testlib = { path = "../../test-utils/testlib" }
 

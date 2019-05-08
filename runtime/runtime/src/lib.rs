@@ -32,6 +32,7 @@ use primitives::utils::{
 };
 use wasm::executor;
 use wasm::types::{ContractCode, ReturnData, RuntimeContext};
+use tempdir::TempDir;
 
 use crate::ethereum::EthashProvider;
 use crate::ext::RuntimeExt;
@@ -75,6 +76,16 @@ pub struct ApplyResult {
 pub struct Runtime {
     ethash_provider: Arc<Mutex<EthashProvider>>,
 }
+
+impl Default for Runtime {
+
+    fn default() -> Self {
+        let ethash_provider = EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
+        let trie_viewer = Runtime::new(Arc::new(Mutex::new(ethash_provider)));
+        trie_viewer
+    }
+}
+
 
 impl Runtime {
     pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {

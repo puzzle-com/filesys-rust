@@ -72,12 +72,12 @@ pub struct FileSysClient {
 }
 
 impl Default for FileSysClient {
-    /// Creates an `FileSysClient` connected to the endpoint specified in ~/.ipfs/api.
+    /// Creates an `FileSysClient` connected to the endpoint specified in ~/.handler/api.
     /// If not found, tries to connect to `localhost:5001`.
     ///
     fn default() -> FileSysClient {
         dirs::home_dir()
-            .map(|home_dir| home_dir.join(".ipfs").join("api"))
+            .map(|home_dir| home_dir.join(".handler").join("api"))
             .and_then(|multiaddr_path| fs::read_to_string(&multiaddr_path).ok())
             .and_then(|multiaddr_str| multiaddr_str.to_multiaddr().ok())
             .and_then(|multiaddr| {
@@ -1174,7 +1174,7 @@ impl FileSysClient {
     ///
     /// # fn main() {
     /// let client = FileSysClient::default();
-    /// let req = client.file_ls("/ipns/ipfs.io");
+    /// let req = client.file_ls(handler);
     /// # }
     /// ```
     ///
@@ -1709,7 +1709,7 @@ impl FileSysClient {
     /// # fn main() {
     /// let client = FileSysClient::default();
     /// let req = client.name_resolve(
-    ///     Some("/ipns/ipfs.io"),
+    ///     Some(handler),
     ///     true,
     ///     false);
     /// # }

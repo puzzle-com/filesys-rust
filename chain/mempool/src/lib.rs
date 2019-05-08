@@ -58,13 +58,13 @@ impl Pool {
         max_block_size: u32,
     ) -> Self {
         Pool {
-            signer,
+        signer,
             transactions: Default::default(),
             transaction_info: Default::default(),
             receipts: Default::default(),
             storage,
             trie,
-            state_viewer: TrieViewer {},
+            state_viewer: Default::default(),
             snapshots: Default::default(),
             pending_snapshots: Default::default(),
             authority_id: Default::default(),
