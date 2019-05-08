@@ -18,6 +18,7 @@ filesys-ipfs-api = { path = "./runtime/handler" }
 [workspace]
 members = [
     "protos/builder",
+    "runtime/aes",
     "runtime/primitives",
     "runtime/storage",
     "runtime/runtime",
