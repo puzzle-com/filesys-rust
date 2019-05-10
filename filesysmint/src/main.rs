@@ -2,14 +2,14 @@ use clap::{App, Arg};
 use env_logger::Builder;
 use std::path::PathBuf;
 
-use filesysmint::FileSysMint;
+use filesysmint::FilesysMint;
 use node_runtime::chain_spec::ChainSpec;
 
 const DEFAULT_BASE_PATH: &str = "";
 
 fn main() {
     // Parse command line arguments.
-    let matches = App::new("Filesysmint")
+    let matches = App::new("Nearmint")
         .args(&[
             Arg::with_name("base_path")
                 .short("d")
@@ -53,5 +53,5 @@ fn main() {
     builder.try_init().unwrap();
 
     // Fire it up!
-    abci::run(addr, FileSysMint::new(&base_path, chain_spec));
+    abci::run(addr, FilesysMint::new(&base_path, chain_spec));
 }

@@ -68,7 +68,7 @@ impl ShardClient {
         max_block_size: u32,
     ) -> Self {
         let trie = Arc::new(Trie::new(storage.clone()));
-        let runtime = Runtime::default();
+        let runtime = Runtime {};
         let state_update = TrieUpdate::new(trie.clone(), MerkleHash::default());
         let (genesis_root, db_changes) = runtime.apply_genesis_state(
             state_update,
@@ -80,8 +80,7 @@ impl ShardClient {
         let genesis = SignedShardBlock::genesis(genesis_root);
 
         let chain = Arc::new(chain::BlockChain::new(genesis, storage.clone()));
-
-        let trie_viewer = Default::default();
+        let trie_viewer = TrieViewer {};
         let pool = match signer {
             Some(signer) => Some(Arc::new(RwLock::new(Pool::new(
                 signer,

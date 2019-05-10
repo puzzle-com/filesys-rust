@@ -16,16 +16,13 @@ use super::RuntimeExt;
 use crate::ethereum::EthashProvider;
 use std::sync::{Arc, Mutex};
 
-use tempdir::TempDir;
-
-
 #[derive(Serialize, Deserialize)]
 pub struct ViewStateResult {
     pub values: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 pub struct TrieViewer {
-    pub ethash_provider: Arc<Mutex<EthashProvider>>,
+    ethash_provider: Arc<Mutex<EthashProvider>>,
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
@@ -38,15 +35,6 @@ pub struct AccountViewCallResult {
     #[serde(with = "bs58_format")]
     pub code_hash: CryptoHash,
 }
-impl Default for TrieViewer {
-
-    fn default() -> Self {
-        let ethash_provider = EthashProvider::new(TempDir::new("runtime_user_test_ethash").unwrap().path());
-        let trie_viewer = TrieViewer::new(Arc::new(Mutex::new(ethash_provider)));
-        trie_viewer
-    }
-}
-
 
 impl TrieViewer {
     pub fn new(ethash_provider: Arc<Mutex<EthashProvider>>) -> Self {
@@ -155,6 +143,7 @@ impl TrieViewer {
                         0,
                         contract_id,
                         contract_id,
+                        0,
                         0,
                         block_index,
                         root.as_ref().into(),
@@ -281,7 +270,7 @@ mod tests {
         let (_, trie, root) = get_runtime_and_trie();
         let mut state_update = TrieUpdate::new(trie.clone(), root);
         state_update
-            .set(&account_suffix(&alice_account(), b"test123"), &DBValue::from_slice(b"123"));
+            .set(account_suffix(&alice_account(), b"test123"), DBValue::from_slice(b"123"));
         let (new_root, db_changes) = state_update.finalize();
         trie.apply_changes(db_changes).unwrap();
 

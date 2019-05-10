@@ -15,5 +15,7 @@ rlp = { version = "0.3.0", features = ["ethereum"] }
 cid = "0.3"
 multihash = "0.8"
 unicase = "2.0"
+multiaddr = "*"
+multibase = "*"
 
 [dev-dependencies]

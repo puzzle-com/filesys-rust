@@ -3,3 +3,6 @@
 chain/src/storage/db/*
 **/*.rs.bk
 study/*
+filesysmint/src/storage/db/*
+filesysmint/src/storage
+filesysmint/storage
