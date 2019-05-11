@@ -1,9 +1,0 @@
-[package]
-name = "ipld"
-version = "0.1.0"
-authors = ["FileSys Inc <hello@FileSys.com>"]
-readme = "README.md"
-license = "MIT"
-
-[dependencies]
-serde_cbor = { path = "../cbor" }
