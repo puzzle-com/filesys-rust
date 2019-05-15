@@ -6,10 +6,10 @@ use crate::hash::{hash, hash_struct};
 const SINGLEPARTITIONPROOFLEN: u32 = 192;
 
 // PoStProof is the byte representation of the Proof of SpaceTime proof
-pub type PoStProof = hash;
+pub type PoStProof = Vec<u8>;
 
 // PoRepProof is the byte representation of the Seal Proof of Replication
-pub type PoRepProof = hash;
+pub type PoRepProof = Vec<u8>;
 
 
 impl PoStProof {
