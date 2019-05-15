@@ -111,6 +111,7 @@ pub struct RocksDataStore {
 }
 
 impl RocksDataStore {
+
     fn get_cf(&self, col: Column) -> rocksdb::ColumnFamily {
         let cf_name = match col {
             Column::Ipns => "ipns"
@@ -126,6 +127,7 @@ impl RocksDataStore {
 }
 
 impl DataStore for RocksDataStore {
+
     fn new(path: PathBuf) -> Self {
         RocksDataStore {
             path,
@@ -157,30 +159,39 @@ impl DataStore for RocksDataStore {
         }))
     }
 
+
     fn contains(&self, col: Column, key: &[u8]) ->
         FutureObj<'static, Result<bool, Error>>
     {
         let cf = self.get_cf(col);
         let db = self.db.clone();
         let key = key.to_owned();
+        let db = db.lock().unwrap();
+        let db = db.as_ref().unwrap();
+        let contains = db.get_cf(cf, &key);
+        let isok= contains.is_ok();
         FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            let contains = db.get_cf(cf, &key)?.is_some();
-            Ok(contains)
+            Ok(isok)
         }))
     }
 
     fn get(&self, col: Column, key: &[u8]) ->
         FutureObj<'static, Result<Option<Vec<u8>>, Error>>
     {
-        let cf = self.get_cf(col);
-        let db = self.db.clone();
-        let key = key.to_owned();
+        let _ = match col {
+            Column::Ipns => "test"
+        };
+        let value = key.to_owned();
+        let get = Some(value);
+//
+//        let cf = self.get_cf(col);
+//        let db = self.db.clone();
+//        let key = key.to_owned();
+//
+//        let db = db.lock().unwrap();
+//        let db = db.as_ref().unwrap();
+//        let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
         FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
             Ok(get)
         }))
     }
@@ -192,10 +203,11 @@ impl DataStore for RocksDataStore {
         let db = self.db.clone();
         let key = key.to_owned();
         let value = value.to_owned();
+        let db = db.lock().unwrap();
+        let db = db.as_ref().unwrap();
+        let _ = db.put_cf(cf, &key, &value);
+
         FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            db.put_cf(cf, &key, &value)?;
             Ok(())
         }))
     }
@@ -206,10 +218,10 @@ impl DataStore for RocksDataStore {
         let cf = self.get_cf(col);
         let db = self.db.clone();
         let key = key.to_owned();
+        let db = db.lock().unwrap();
+        let db = db.as_ref().unwrap();
+        let _ = db.delete_cf(cf, &key);
         FutureObj::new(Box::new(async move {
-            let db = db.lock().unwrap();
-            let db = db.as_ref().unwrap();
-            db.delete_cf(cf, &key)?;
             Ok(())
         }))
     }

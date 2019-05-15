@@ -28,7 +28,6 @@ members = [
     "test-utils/loadtester",
     "rust-ipfs",
     "filesysmint/",
-
 ]
 exclude = [
     "runtime/wasm/runtest/generate-wasm/to-wasm",
