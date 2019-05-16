@@ -9,7 +9,7 @@ const DEFAULT_BASE_PATH: &str = "";
 
 fn main() {
     // Parse command line arguments.
-    let matches = App::new("Nearmint")
+    let matches = App::new("Filesysmint")
         .args(&[
             Arg::with_name("base_path")
                 .short("d")
