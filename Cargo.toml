@@ -28,7 +28,7 @@ members = [
     "test-utils/state-viewer",
 #    "filesys-api",
 #    "filesys-cli",
-    "rust-ipfs",
+    "ipfstools",
     "filesysmint/",
 ]
 exclude = [
