@@ -2,7 +2,7 @@ use clap::{App, Arg};
 use env_logger::Builder;
 use std::path::PathBuf;
 
-use filesysmint::FilesysMint;
+use filesysmint::FileSysMint;
 use node_runtime::chain_spec::ChainSpec;
 
 const DEFAULT_BASE_PATH: &str = "";
@@ -53,5 +53,5 @@ fn main() {
     builder.try_init().unwrap();
 
     // Fire it up!
-    abci::run(addr, FilesysMint::new(&base_path, chain_spec));
+    abci::run(addr, FileSysMint::new(&base_path, chain_spec));
 }

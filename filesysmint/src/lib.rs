@@ -19,6 +19,7 @@ use primitives::crypto::signature::PublicKey;
 use primitives::traits::ToBytes;
 use primitives::transaction::{SignedTransaction, TransactionStatus};
 use primitives::types::{AccountId, AuthorityStake, MerkleHash};
+use primitives::utils::prefix_for_access_key;
 use storage::test_utils::create_beacon_shard_storages;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 use verifier::TransactionVerifier;
@@ -27,17 +28,17 @@ const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STORAGE_PATH: &str = "storage";
 
 /// Connector of NEAR Core with Tendermint.
-pub struct FilesysMint {
+pub struct FileSysMint {
     chain_spec: ChainSpec,
     runtime: Runtime,
-    trie: Arc<Trie>,
+    pub trie: Arc<Trie>,
     trie_viewer: TrieViewer,
     storage: Arc<RwLock<ShardChainStorage>>,
-    root: MerkleHash,
+    pub root: MerkleHash,
     state_update: Option<TrieUpdate>,
     apply_state: Option<ApplyState>,
     authority_proposals: Vec<AuthorityStake>,
-    height: u64,
+    pub height: u64,
 }
 
 fn get_storage_path(base_path: &Path) -> String {
@@ -50,7 +51,7 @@ fn get_storage_path(base_path: &Path) -> String {
     storage_path.to_str().unwrap().to_owned()
 }
 
-impl FilesysMint {
+impl FileSysMint {
     pub fn new_from_storage(
         base_path: &Path,
         storage: Arc<RwLock<ShardChainStorage>>,
@@ -102,7 +103,7 @@ impl FilesysMint {
             (genesis_root, 0)
         };
 
-        FilesysMint {
+        FileSysMint {
             chain_spec,
             runtime,
             trie,
@@ -123,7 +124,7 @@ impl FilesysMint {
         Self::new_from_storage(base_path, storage, chain_spec)
     }
 
-    /// In memory instance of nearmint used for test
+    /// In memory instance of filesysmint used for test
     pub fn new_for_test(chain_spec: ChainSpec) -> Self {
         let (_, storage) = create_beacon_shard_storages();
         Self::new_from_storage(Path::new("test"), storage, chain_spec)
@@ -136,7 +137,7 @@ fn convert_tx(data: &[u8]) -> Result<SignedTransaction, String> {
         .and_then(TryInto::try_into)
 }
 
-impl RuntimeAdapter for FilesysMint {
+impl RuntimeAdapter for FileSysMint {
     fn view_account(&self, account_id: &AccountId) -> Result<AccountViewCallResult, String> {
         let state_update = TrieUpdate::new(self.trie.clone(), self.root);
         self.trie_viewer.view_account(&state_update, account_id)
@@ -159,9 +160,23 @@ impl RuntimeAdapter for FilesysMint {
             logs,
         )
     }
+
+    fn view_access_key(&self, account_id: &String) -> Result<Vec<PublicKey>, String> {
+        let state_update = TrieUpdate::new(self.trie.clone(), self.root);
+        let prefix = prefix_for_access_key(account_id);
+        match state_update.iter(&prefix) {
+            Ok(iter) => iter
+                .map(|key| {
+                    let public_key = &key[prefix.len()..];
+                    PublicKey::try_from(public_key).map_err(|e| format!("{}", e))
+                })
+                .collect::<Result<Vec<_>, String>>(),
+            Err(e) => Err(e),
+        }
+    }
 }
 
-impl Application for FilesysMint {
+impl Application for FileSysMint {
     fn info(&mut self, req: &RequestInfo) -> ResponseInfo {
         info!("Info: {:?}", req);
         let mut resp = ResponseInfo::new();
@@ -328,7 +343,7 @@ mod tests {
     use protobuf::Message;
 
     use node_runtime::adapter::RuntimeAdapter;
-    use node_runtime::chain_spec::ChainSpec;
+    use node_runtime::chain_spec::{ChainSpec, TESTING_INIT_BALANCE};
     use primitives::crypto::signer::InMemorySigner;
     use primitives::hash::CryptoHash;
     use primitives::transaction::TransactionBody;
@@ -339,9 +354,9 @@ mod tests {
     #[test]
     fn test_apply_block() {
         let chain_spec = ChainSpec::default_devnet();
-        let mut nearmint = NearMint::new_for_test(chain_spec);
+        let mut filesysmint = FileSysMint::new_for_test(chain_spec);
         let req_init = RequestInitChain::new();
-        let resp_init = nearmint.init_chain(&req_init);
+        let resp_init = filesysmint.init_chain(&req_init);
         assert_eq!(resp_init.validators.len(), 1);
         let mut req_begin_block = RequestBeginBlock::new();
         let mut h = Header::new();
@@ -350,46 +365,54 @@ mod tests {
         last_block_id.hash = CryptoHash::default().as_ref().to_vec();
         h.set_last_block_id(last_block_id);
         req_begin_block.set_header(h);
-        nearmint.begin_block(&req_begin_block);
+        filesysmint.begin_block(&req_begin_block);
         let signer = InMemorySigner::from_seed("alice.near", "alice.near");
+        // Send large enough amount of money so that we can simultaneously check whether they were
+        // debited and whether the rent was applied too.
+        let money_to_send = 1_000_000;
         let tx: near_protos::signed_transaction::SignedTransaction =
-            TransactionBody::send_money(1, "alice.near", "bob.near", 10).sign(&signer).into();
+            TransactionBody::send_money(1, "alice.near", "bob.near", money_to_send)
+                .sign(&signer)
+                .into();
         let mut deliver_req = RequestDeliverTx::new();
         deliver_req.tx = tx.write_to_bytes().unwrap();
-        let deliver_resp = nearmint.deliver_tx(&deliver_req);
+        let deliver_resp = filesysmint.deliver_tx(&deliver_req);
         assert_eq!(deliver_resp.log, "");
         assert_eq!(deliver_resp.code, 0);
         let mut req_end_block = RequestEndBlock::new();
         req_end_block.height = 1;
-        nearmint.end_block(&req_end_block);
+        filesysmint.end_block(&req_end_block);
         let req_commit = RequestCommit::new();
-        nearmint.commit(&req_commit);
+        filesysmint.commit(&req_commit);
 
-        let result = nearmint.view_account(&"alice.near".to_string()).unwrap();
-        assert_eq!(result.amount, 999999999990);
-        let result = nearmint.view_account(&"bob.near".to_string()).unwrap();
-        assert_eq!(result.amount, 1000000000010);
-        assert_eq!(nearmint.height, 1);
+        let alice_info = filesysmint.view_account(&"alice.near".to_string()).unwrap();
+        // Should be strictly less, because the rent was applied too.
+        assert!(alice_info.amount < TESTING_INIT_BALANCE - money_to_send);
+        let bob_info = filesysmint.view_account(&"bob.near".to_string()).unwrap();
+        // The balance was applied but the rent was not subtracted because we have not performed
+        // interactions from that account.
+        assert_eq!(bob_info.amount, TESTING_INIT_BALANCE + money_to_send);
+        assert_eq!(filesysmint.height, 1);
 
         let mut req_query = RequestQuery::new();
         req_query.path = "account/alice.near".to_string();
-        let resp_query = nearmint.query(&req_query);
+        let resp_query = filesysmint.query(&req_query);
         assert_eq!(resp_query.code, 0);
         let resp: AccountViewCallResult = serde_json::from_slice(&resp_query.value).unwrap();
-        assert_eq!(resp.amount, 999999999990);
+        assert_eq!(resp.amount, alice_info.amount);
     }
 
     #[test]
     fn test_invalid_transaction() {
         let chain_spec = ChainSpec::default_devnet();
-        let mut nearmint = NearMint::new_for_test(chain_spec);
+        let mut filesysmint = FileSysMint::new_for_test(chain_spec);
         let fake_signature = StructSignature::try_from(&[0u8; 64] as &[u8]).unwrap();
         let body = TransactionBody::send_money(1, "alice.near", "bob.near", 10);
         let invalid_tx: near_protos::signed_transaction::SignedTransaction =
             SignedTransaction::new(fake_signature, body, None).into();
         let mut req_tx = RequestCheckTx::new();
         req_tx.set_tx(invalid_tx.write_to_bytes().unwrap());
-        let resp_tx = nearmint.check_tx(&req_tx);
+        let resp_tx = filesysmint.check_tx(&req_tx);
         assert_eq!(resp_tx.code, 1);
     }
 }

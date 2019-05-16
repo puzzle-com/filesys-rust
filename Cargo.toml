@@ -17,7 +17,6 @@ alphanet = { path = "./chain/alphanet" }
 [workspace]
 members = [
     "protos/builder",
-    "runtime/aes",
     "runtime/primitives",
     "runtime/storage",
     "runtime/runtime",
@@ -26,6 +25,9 @@ members = [
     "test-utils/keystore",
     "test-utils/testlib",
     "test-utils/loadtester",
+    "test-utils/state-viewer",
+#    "filesys-api",
+#    "filesys-cli",
     "rust-ipfs",
     "filesysmint/",
 ]

@@ -46,9 +46,9 @@ pub mod chain_spec;
 mod system;
 
 pub mod ethereum;
-mod ext;
+pub mod ext;
 pub mod state_viewer;
-mod tx_stakes;
+pub mod tx_stakes;
 
 pub const ETHASH_CACHE_PATH: &str = "ethash_cache";
 pub(crate) const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
@@ -167,6 +167,22 @@ impl Runtime {
         }
     }
 
+    /// Subtracts the storage rent from the given account balance.
+    fn apply_rent(account_id: &AccountId, account: &mut Account, block_index: BlockIndex) {
+        use primitives::serialize::Encode;
+        use primitives::types::StorageUsage;
+        // Cost of storing a single byte per block.
+        const STORAGE_COST: u64 = 1;
+
+        // The number of bytes the account occupies in the Trie.
+        let meta_storage = key_for_account(account_id).len() as StorageUsage
+            + account.encode().unwrap().len() as StorageUsage;
+        let total_storage = account.storage_usage + meta_storage;
+        let charge = (block_index - account.storage_paid_at) * total_storage * STORAGE_COST;
+        account.amount = if charge <= account.amount { account.amount - charge } else { 0 };
+        account.storage_paid_at = block_index;
+    }
+
     /// node receives signed_transaction, processes it
     /// and generates the receipt to send to receiver
     fn apply_signed_transaction(
@@ -181,6 +197,7 @@ impl Runtime {
             verifier.verify_transaction(transaction)?
         };
         originator.nonce = transaction.body.get_nonce();
+        Self::apply_rent(&originator_id, &mut originator, block_index);
         set(state_update, key_for_account(&originator_id), &originator);
         state_update.commit();
         let contract_id = transaction.body.get_contract_id();
@@ -300,6 +317,22 @@ impl Runtime {
         Ok(receipts)
     }
 
+    fn get_code(
+        state_update: &TrieUpdate,
+        receiver_id: &AccountId,
+    ) -> Result<Arc<ContractCode>, String> {
+        debug!(target:"runtime", "Calling the contract at account {}", receiver_id);
+        let account = get::<Account>(state_update, &key_for_account(receiver_id))
+            .ok_or_else(|| format!("cannot find account for account_id {}", receiver_id.clone()))?;
+        let code_hash = account.code_hash;
+        let code = || {
+            get::<ContractCode>(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
+                format!("cannot find contract code for account {}", receiver_id.clone())
+            })
+        };
+        wasm::cache::get_code_with_cache(code_hash, code)
+    }
+
     fn apply_async_call(
         &mut self,
         state_update: &mut TrieUpdate,
@@ -312,10 +345,7 @@ impl Runtime {
         block_index: BlockIndex,
         transaction_result: &mut TransactionResult,
     ) -> Result<Vec<ReceiptTransaction>, String> {
-        let code: ContractCode =
-            get(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
-                format!("cannot find contract code for account {}", receiver_id.clone())
-            })?;
+        let code = Self::get_code(state_update, receiver_id)?;
         let result = {
             let mut runtime_ext = RuntimeExt::new(
                 state_update,
@@ -383,10 +413,7 @@ impl Runtime {
         let mut needs_removal = false;
         let mut callback: Option<Callback> =
             get(state_update, &key_for_callback(&callback_res.info.id));
-        let code: ContractCode =
-            get(state_update, &key_for_code(receiver_id)).ok_or_else(|| {
-                format!("account {} does not have contract code", receiver_id.clone())
-            })?;
+        let code = Self::get_code(state_update, receiver_id)?;
         mana_accounting.gas_used = 0;
         mana_accounting.mana_refund = 0;
         let receipts = match callback {
@@ -430,6 +457,7 @@ impl Runtime {
                         mana_accounting.mana_refund = res.mana_left;
                         transaction_result.logs.append(&mut res.logs);
                         let balance = res.balance;
+                        let storage_usage = res.storage_usage;
                         res.return_data
                             .map_err(|e| {
                                 format!("wasm callback execution failed with error: {:?}", e)
@@ -445,6 +473,7 @@ impl Runtime {
                             })
                             .and_then(|receipts| {
                                 receiver.amount = balance;
+                                receiver.storage_usage = storage_usage;
                                 Ok(receipts)
                             })
                     })
@@ -787,6 +816,7 @@ impl Runtime {
                     staked: 0,
                     code_hash: code.get_hash(),
                     storage_usage: 0,
+                    storage_paid_at: 0,
                 },
             );
             // Default code
