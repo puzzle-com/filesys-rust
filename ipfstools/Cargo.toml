@@ -1,7 +1,7 @@
 [package]
-name = "ipfs"
+name = "ipfstools"
 version = "0.1.0"
-authors = ["David Craven <david@craven.ch>"]
+authors = ["filesys Inc <hello@filesys.com>"]
 edition = "2018"
 
 [dependencies]

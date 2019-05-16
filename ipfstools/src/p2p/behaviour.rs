@@ -142,7 +142,7 @@ impl<TSubstream: AsyncRead + AsyncWrite, TSwarmTypes: SwarmTypes> Behaviour<TSub
         let ping = Ping::new();
         let identify = Identify::new(
             "/ipfs/0.1.0".into(),
-            "rust-ipfs".into(),
+            "ipfstools".into(),
             options.key_pair.to_public_key(),
         );
         let floodsub = Floodsub::new(options.peer_id.to_owned());

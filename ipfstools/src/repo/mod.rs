@@ -229,7 +229,7 @@ pub(crate) mod tests {
 
     pub fn create_mock_repo() -> Repo<Types> {
         let mut tmp = temp_dir();
-        tmp.push("rust-ipfs-repo");
+        tmp.push("ipfstools-repo");
         let options: RepoOptions<Types> = RepoOptions {
             _marker: PhantomData,
             path: tmp,
@@ -241,7 +241,7 @@ pub(crate) mod tests {
     #[test]
     fn test_repo() {
         let mut tmp = temp_dir();
-        tmp.push("rust-ipfs-repo");
+        tmp.push("ipfstools-repo");
         let options: RepoOptions<Types> = RepoOptions {
             _marker: PhantomData,
             path: tmp,

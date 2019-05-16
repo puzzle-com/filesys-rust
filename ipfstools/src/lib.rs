@@ -42,8 +42,8 @@ use self::repo::{create_repo, RepoOptions, Repo, RepoEvent};
 use self::unixfs::File;
 
 static IPFS_LOG: &str = "info";
-static IPFS_PATH: &str = ".rust-ipfs";
-static XDG_APP_NAME: &str = "rust-ipfs";
+static IPFS_PATH: &str = ".ipfstools";
+static XDG_APP_NAME: &str = "ipfstools";
 static CONFIG_FILE: &str = "config.json";
 
 /// All types can be changed at compile time by implementing
