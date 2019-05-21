@@ -15,6 +15,11 @@ pub mod shard;
 
 type StorageResult<T> = io::Result<Option<T>>;
 
+pub type DB = parity_rocksdb::DB;
+pub type BaseColumn = parity_rocksdb::Column;
+pub type BaseOptions = parity_rocksdb::Options;
+
+
 /// Uniquely identifies the chain.
 #[derive(Clone)]
 pub enum ChainId {

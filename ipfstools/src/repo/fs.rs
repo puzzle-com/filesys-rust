@@ -1,7 +1,7 @@
 //! Persistent fs backed repo
 use crate::block::{Cid, Block};
 use crate::error::Error;
-use crate::repo::{BlockStore, Column, DataStore};
+use crate::repo::BlockStore;
 use futures::compat::*;
 use futures::future::FutureObj;
 use std::collections::HashSet;
@@ -99,129 +99,6 @@ impl BlockStore for FsBlockStore {
                 await!(fs::remove_file(path).compat())?;
                 cids.lock().unwrap().remove(&cid);
             }
-            Ok(())
-        }))
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct RocksDataStore {
-    path: PathBuf,
-    db: Arc<Mutex<Option<rocksdb::DB>>>,
-}
-
-impl RocksDataStore {
-
-    fn get_cf(&self, col: Column) -> rocksdb::ColumnFamily {
-        let cf_name = match col {
-            Column::Ipns => "ipns"
-        };
-        self.db.lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .cf_handle(cf_name)
-            // TODO safe to unwrap
-            .unwrap()
-    }
-}
-
-impl DataStore for RocksDataStore {
-
-    fn new(path: PathBuf) -> Self {
-        RocksDataStore {
-            path,
-            db: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    fn init(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
-    }
-
-    fn open(&self) -> FutureObj<'static, Result<(), Error>> {
-        let db = self.db.clone();
-        let path = self.path.clone();
-        FutureObj::new(Box::new(async move {
-            let mut db_opts = rocksdb::Options::default();
-            db_opts.create_missing_column_families(true);
-            db_opts.create_if_missing(true);
-
-            let ipns_opts = rocksdb::Options::default();
-            let ipns_cf = rocksdb::ColumnFamilyDescriptor::new("ipns", ipns_opts);
-            let rdb = rocksdb::DB::open_cf_descriptors(
-                &db_opts,
-                &path,
-                vec![ipns_cf],
-            )?;
-            *db.lock().unwrap() = Some(rdb);
-            Ok(())
-        }))
-    }
-
-
-    fn contains(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<bool, Error>>
-    {
-        let cf = self.get_cf(col);
-        let db = self.db.clone();
-        let key = key.to_owned();
-        let db = db.lock().unwrap();
-        let db = db.as_ref().unwrap();
-        let contains = db.get_cf(cf, &key);
-        let isok= contains.is_ok();
-        FutureObj::new(Box::new(async move {
-            Ok(isok)
-        }))
-    }
-
-    fn get(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<Option<Vec<u8>>, Error>>
-    {
-        let _ = match col {
-            Column::Ipns => "test"
-        };
-        let value = key.to_owned();
-        let get = Some(value);
-//
-//        let cf = self.get_cf(col);
-//        let db = self.db.clone();
-//        let key = key.to_owned();
-//
-//        let db = db.lock().unwrap();
-//        let db = db.as_ref().unwrap();
-//        let get = db.get_cf(cf, &key)?.map(|value| value.to_vec());
-        FutureObj::new(Box::new(async move {
-            Ok(get)
-        }))
-    }
-
-    fn put(&self, col: Column, key: &[u8], value: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
-        let cf = self.get_cf(col);
-        let db = self.db.clone();
-        let key = key.to_owned();
-        let value = value.to_owned();
-        let db = db.lock().unwrap();
-        let db = db.as_ref().unwrap();
-        let _ = db.put_cf(cf, &key, &value);
-
-        FutureObj::new(Box::new(async move {
-            Ok(())
-        }))
-    }
-
-    fn remove(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
-        let cf = self.get_cf(col);
-        let db = self.db.clone();
-        let key = key.to_owned();
-        let db = db.lock().unwrap();
-        let db = db.as_ref().unwrap();
-        let _ = db.delete_cf(cf, &key);
-        FutureObj::new(Box::new(async move {
             Ok(())
         }))
     }

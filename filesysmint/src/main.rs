@@ -6,6 +6,13 @@ use filesysmint::FileSysMint;
 use node_runtime::chain_spec::ChainSpec;
 
 const DEFAULT_BASE_PATH: &str = "";
+//
+//const DEFAULT_FILE_LOG: &str = "info";
+//const DEFAULT_FILE_PATH: &str = ".filesys";
+//const DEFAULT_XDG_APP_NAME: &str = ".filesys";
+//const DEFAULT_CONFIG_FILE: &str = "config.json";
+
+
 
 fn main() {
     // Parse command line arguments.

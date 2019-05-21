@@ -24,6 +24,7 @@ use storage::test_utils::create_beacon_shard_storages;
 use storage::{create_storage, GenericStorage, ShardChainStorage, Trie, TrieUpdate};
 use verifier::TransactionVerifier;
 
+
 const POISONED_LOCK_ERR: &str = "The lock was poisoned.";
 const STORAGE_PATH: &str = "storage";
 

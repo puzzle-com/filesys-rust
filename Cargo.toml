@@ -49,6 +49,7 @@ testlib = { path = "./test-utils/testlib" }
 node-runtime = { path = "./runtime/runtime" }
 near-protos = { path = "./runtime/protos" }
 filesysmint = { path = "./filesysmint" }
+ipfstools = { path = "./ipfstools" }
 
 [profile.release]
 lto = true        # Enable full link-time optimization.

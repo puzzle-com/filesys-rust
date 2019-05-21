@@ -59,7 +59,6 @@ impl<T: SwarmTypes + RepoTypes> IpfsTypes for T {}
 pub struct Types;
 impl RepoTypes for Types {
     type TBlockStore = repo::fs::FsBlockStore;
-    type TDataStore = repo::fs::RocksDataStore;
 }
 
 /// Testing IPFS types
@@ -67,7 +66,6 @@ impl RepoTypes for Types {
 pub struct TestTypes;
 impl RepoTypes for TestTypes {
     type TBlockStore = repo::mem::MemBlockStore;
-    type TDataStore = repo::mem::MemDataStore;
 }
 
 /// Ipfs options
@@ -214,17 +212,10 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     }
 
     /// Publishes an ipld path.
-    pub fn publish_ipns(&self, key: &PeerId, path: &IpfsPath) ->
+    pub fn publish_ipns(&self, path: &IpfsPath) ->
     impl Future<Output=Result<IpfsPath, Error>>
     {
-        self.ipns.publish(key, path)
-    }
-
-    /// Cancel an ipns path.
-    pub fn cancel_ipns(&self, key: &PeerId) ->
-    impl Future<Output=Result<(), Error>>
-    {
-        self.ipns.cancel(key)
+        self.ipns.publish(path)
     }
 
     /// Start daemon.

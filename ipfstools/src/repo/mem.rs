@@ -1,7 +1,7 @@
 //! Volatile memory backed repo
 use crate::block::{Cid, Block};
 use crate::error::Error;
-use crate::repo::{BlockStore, DataStore, Column};
+use crate::repo::{BlockStore};
 use futures::future::FutureObj;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -48,67 +48,6 @@ impl BlockStore for MemBlockStore {
 
     fn remove(&self, cid: &Cid) -> FutureObj<'static, Result<(), Error>> {
         self.blocks.lock().unwrap().remove(cid);
-        FutureObj::new(Box::new(futures::future::ok(())))
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct MemDataStore {
-    ipns: Arc<Mutex<HashMap<Vec<u8>, Vec<u8>>>>,
-}
-
-impl DataStore for MemDataStore {
-    fn new(_path: PathBuf) -> Self {
-        MemDataStore {
-            ipns: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-
-    fn init(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
-    }
-
-    fn open(&self) -> FutureObj<'static, Result<(), Error>> {
-        FutureObj::new(Box::new(futures::future::ok(())))
-    }
-
-    fn contains(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<bool, Error>>
-    {
-        let map = match col {
-            Column::Ipns => &self.ipns
-        };
-        let contains = map.lock().unwrap().contains_key(key);
-        FutureObj::new(Box::new(futures::future::ok(contains)))
-    }
-
-    fn get(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<Option<Vec<u8>>, Error>>
-    {
-        let map = match col {
-            Column::Ipns => &self.ipns
-        };
-        let value = map.lock().unwrap().get(key).map(|value| value.to_owned());
-        FutureObj::new(Box::new(futures::future::ok(value)))
-    }
-
-    fn put(&self, col: Column, key: &[u8], value: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
-        let map = match col {
-            Column::Ipns => &self.ipns
-        };
-        map.lock().unwrap().insert(key.to_owned(), value.to_owned());
-        FutureObj::new(Box::new(futures::future::ok(())))
-    }
-
-    fn remove(&self, col: Column, key: &[u8]) ->
-        FutureObj<'static, Result<(), Error>>
-    {
-        let map = match col {
-            Column::Ipns => &self.ipns
-        };
-        map.lock().unwrap().remove(key);
         FutureObj::new(Box::new(futures::future::ok(())))
     }
 }
