@@ -59,6 +59,18 @@ export function benchmark_storage(n: i32): string {
   return sum.toString()
 }
 
+export function limited_storage(max_storage: u64): string {
+  let i = 0;
+  while (context.storageUsage <= max_storage) {
+    i += 1;
+    storage.setItem(i.toString(), i.toString());
+  }
+  if (context.storageUsage > max_storage) {
+    storage.removeItem(i.toString());
+  }
+  return i.toString()
+}
+
 export function benchmark_sum_n(n: i32): string {
   let i = 0;
   let sum: u64 = 0;
@@ -92,6 +104,39 @@ export function testSetRemove(value: string): void {
   assert(storage.getItem("test") == null, "Item must be empty");
 }
 
+function buildString(n: i32): string {
+  assert(n >= 0);
+  let result = "";
+  for (let i = 20; i >= 0; --i) {
+    result = result + result;
+    if ((n >> i) & 1) {
+      result += "a";
+    }
+  }
+  return result;
+}
+
+export function insertStrings(from: i32, to: i32): void {
+  let str = buildString(to);
+  for (let i = from; i < to; i++) {
+    storage.setItem(str.substr(to - i) + "b", "x");
+  }
+}
+
+export function deleteStrings(from: i32, to: i32): void {
+  let str = buildString(to);
+  for (let i = to - 1; i >= from; i--) {
+    storage.removeItem(str.substr(to - i) + "b");
+  }
+}
+
+export function recurse(n: i32): i32 {
+  if (n <= 0) {
+    return n;
+  }
+  return recurse(n - 1) + 1;
+}
+
 // For testing promises
 
 export function callPromise(args: PromiseArgs): void {
@@ -100,13 +145,13 @@ export function callPromise(args: PromiseArgs): void {
       args.receiver,
       args.methodName,
       inputArgs.encode(),
-      args.additionalMana);
+      args.balance);
   if (args.callback) {
     inputArgs.args = args.callbackArgs;
     promise = promise.then(
         args.callback,
         inputArgs.encode(),
-        args.callbackAdditionalMana);
+        args.callbackBalance);
   }
   promise.returnAsResult();
 }

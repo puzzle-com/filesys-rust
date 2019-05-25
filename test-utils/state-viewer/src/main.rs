@@ -1,8 +1,7 @@
 use clap::{App, Arg};
-use nearmint::NearMint;
+use filesysmint::FileSysMint;
 use node_runtime::chain_spec::ChainSpec;
 use node_runtime::ext::ACCOUNT_DATA_SEPARATOR;
-use node_runtime::tx_stakes::TxTotalStake;
 use primitives::account::{AccessKey, Account};
 use primitives::crypto::signature::PublicKey;
 use primitives::hash::hash;
@@ -60,18 +59,6 @@ fn print_state_entry(key: Vec<u8>, value: DBValue) {
             let account_name = to_printable(&key[1..]);
             println!("Code for {:?}: {}", account_name, to_printable(&value));
         }
-        col::TX_STAKE => {
-            let separator = (1..key.len()).find(|&x| key[x] == col::TX_STAKE_SEPARATOR[0]);
-            let stake: TxTotalStake = Decode::decode(&value).unwrap();
-            if let Some(separator) = separator {
-                let account_name = to_printable(&key[1..separator]);
-                let contract_id = to_printable(&key[(separator + 1)..]);
-                println!("Tx_stake {:?},{:?}: {:?}", account_name, contract_id, stake);
-            } else {
-                let account_name = to_printable(&key[1..]);
-                println!("Tx_stake {:?}: {:?}", account_name, stake);
-            }
-        }
         col::ACCESS_KEY => {
             let separator = (1..key.len()).find(|&x| key[x] == col::ACCESS_KEY[0]).unwrap();
             let access_key: AccessKey = Decode::decode(&value).unwrap();
@@ -120,7 +107,7 @@ fn main() {
         ChainSpec::from_file_or_default(&chain_spec_path, ChainSpec::default_poa())
     };
 
-    let nearmint = NearMint::new(&base_path, chain_spec);
+    let nearmint = FileSysMint::new(&base_path, chain_spec);
     let trie = TrieIterator::new(&nearmint.trie, &nearmint.root).unwrap();
     println!("Storage root is {}, block height is {}", nearmint.root, nearmint.height);
     for item in trie {

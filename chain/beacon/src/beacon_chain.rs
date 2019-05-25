@@ -8,7 +8,7 @@ use storage::BeaconChainStorage;
 use crate::authority::{get_authority, Authority};
 
 pub type BeaconBlockChain =
-chain::BlockChain<SignedBeaconBlockHeader, SignedBeaconBlock, BeaconChainStorage>;
+    chain::BlockChain<SignedBeaconBlockHeader, SignedBeaconBlock, BeaconChainStorage>;
 
 pub struct BeaconClient {
     pub chain: BeaconBlockChain,
@@ -52,7 +52,7 @@ mod tests {
             1,
             AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 1 },
         )
-            .0;
+        .0;
         let beacon_client = BeaconClient::new(genesis.clone(), &chain_spec, storage);
         (beacon_client, genesis)
     }

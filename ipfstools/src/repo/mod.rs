@@ -75,6 +75,7 @@ impl<TRepoTypes: RepoTypes> Repo<TRepoTypes> {
         blockstore_path.push("blockstore");
         let block_store = TRepoTypes::TBlockStore::new(blockstore_path);
         let (sender, receiver) = channel::<RepoEvent>();
+
         (Repo {
             block_store,
             events: sender,

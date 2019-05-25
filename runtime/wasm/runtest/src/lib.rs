@@ -5,7 +5,7 @@ use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 extern crate byteorder;
 
 extern crate primitives;
-use primitives::types::{AccountId, Balance, Mana, PromiseId, ReceiptId};
+use primitives::types::{AccountId, Balance, PromiseId, ReceiptId};
 use std::collections::btree_map::BTreeMap;
 
 #[derive(Default)]
@@ -75,7 +75,6 @@ impl External for MyExt {
         account_id: AccountId,
         _method_name: Vec<u8>,
         _arguments: Vec<u8>,
-        _mana: Mana,
         _amount: Balance,
     ) -> ExtResult<PromiseId> {
         match self.num_receipts {
@@ -92,7 +91,7 @@ impl External for MyExt {
         promise_id: PromiseId,
         _method_name: Vec<u8>,
         _arguments: Vec<u8>,
-        _mana: Mana,
+        _amount: Balance,
     ) -> ExtResult<PromiseId> {
         match promise_id {
             PromiseId::Receipt(_) => Err(ExtError::WrongPromise),
@@ -123,20 +122,31 @@ mod tests {
     use primitives::hash::hash;
     use std::fs;
     use wasm::executor::{self, ExecutionOutcome};
-    use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext};
+    use wasm::types::{Config, ContractCode, Error, ReturnData, RuntimeContext, RuntimeError};
 
     use super::*;
     use primitives::types::StorageUsage;
     use std::path::PathBuf;
 
-    fn run_with_filename(
+    fn infinite_initializer_contract() -> Vec<u8> {
+        wabt::wat2wasm(
+            r#" (module
+                       (type (;0;) (func))
+                       (func (;0;) (type 0) (loop (br 0)))
+                       (func (;1;) (type 0))
+                       (start 0)
+                       (export "hello" (func 1)))"#,
+        )
+        .unwrap()
+    }
+
+    fn run_wasm_binary(
+        wasm_binary: Vec<u8>,
         method_name: &[u8],
         input_data: &[u8],
         result_data: &[Option<Vec<u8>>],
         context: &RuntimeContext,
-        filename: &str,
     ) -> Result<ExecutionOutcome, Error> {
-        let wasm_binary = fs::read(filename).expect("Unable to read file");
         let code = ContractCode::new(wasm_binary);
 
         let mut ext = MyExt::default();
@@ -151,6 +161,17 @@ mod tests {
             &config,
             &context,
         )
+    }
+
+    fn run_with_filename(
+        method_name: &[u8],
+        input_data: &[u8],
+        result_data: &[Option<Vec<u8>>],
+        context: &RuntimeContext,
+        filename: &str,
+    ) -> Result<ExecutionOutcome, Error> {
+        let wasm_binary = fs::read(filename).expect("Unable to read file");
+        run_wasm_binary(wasm_binary, method_name, input_data, result_data, context)
     }
 
     fn run(
@@ -170,16 +191,17 @@ mod tests {
         tmp
     }
 
-    fn encode_u64(val: u64) -> [u8; 8] {
-        let mut tmp = [0u8; 8];
-        LittleEndian::write_u64(&mut tmp, val);
-        tmp
+    fn decode_i32(val: &[u8]) -> i32 {
+        LittleEndian::read_i32(val)
+    }
+
+    fn decode_u64(val: &[u8]) -> u64 {
+        LittleEndian::read_u64(val)
     }
 
     fn runtime_context(
         balance: Balance,
         amount: Balance,
-        mana: Mana,
         storage_usage: StorageUsage,
     ) -> RuntimeContext {
         RuntimeContext::new(
@@ -187,23 +209,36 @@ mod tests {
             amount,
             &"alice.near".to_string(),
             &"bob".to_string(),
-            mana,
             storage_usage,
             123,
             b"yolo".to_vec(),
+            false,
         )
+    }
+
+    fn run_hello_wasm(method_name: &[u8], input_data: &[u8], amount: u64) -> ExecutionOutcome {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("../../../tests/hello.wasm");
+        run_with_filename(
+            method_name,
+            input_data,
+            &[],
+            &runtime_context(0, amount, 0),
+            path.to_str().unwrap(),
+        )
+        .expect("ok")
     }
 
     #[test]
     fn test_storage() {
         let input_data = [0u8; 0];
 
-        let return_data = run(b"run_test", &input_data, &[], &runtime_context(0, 0, 0, 0))
+        let return_data = run(b"run_test", &input_data, &[], &runtime_context(0, 1_000_000, 0))
             .map(|outcome| outcome.return_data)
             .expect("ok");
 
         match return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 10),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -212,12 +247,13 @@ mod tests {
     fn test_input() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0];
 
-        let return_data = run(b"sum_with_input", &input_data, &[], &runtime_context(0, 0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"sum_with_input", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         match return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(40)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 40),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -235,13 +271,13 @@ mod tests {
             b"sum_with_multiple_results",
             &input_data,
             &result_data,
-            &runtime_context(0, 0, 0, 0),
+            &runtime_context(0, 1_000_000_000, 0),
         )
         .map(|outcome| outcome.return_data)
         .expect("ok");
 
         match return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(12)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_i32(&output_data), 12),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -251,10 +287,8 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"create_promises_and_join", &input_data, &[], &runtime_context(0, 0, 4, 0))
+            run(b"create_promises_and_join", &input_data, &[], &runtime_context(0, 1_000_000, 0))
                 .expect("ok");
-
-        assert_eq!(outcome.mana_used, 4);
 
         match outcome.return_data {
             Ok(ReturnData::Promise(promise_id)) => {
@@ -265,31 +299,17 @@ mod tests {
     }
 
     #[test]
-    fn test_promises_no_mana() {
-        let input_data = [0u8; 0];
-
-        let outcome =
-            run(b"create_promises_and_join", &input_data, &[], &runtime_context(0, 0, 3, 0))
-                .expect("outcome to be ok");
-
-        match outcome.return_data {
-            Err(_) => assert!(true, "That's legit"),
-            _ => assert!(false, "Expected to fail with mana limit"),
-        };
-    }
-
-    #[test]
     fn test_assert_sum_ok() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0, 40u8, 0, 0, 0];
 
-        run(b"assert_sum", &input_data, &[], &runtime_context(0, 0, 0, 0)).expect("ok");
+        run(b"assert_sum", &input_data, &[], &runtime_context(0, 0, 0)).expect("ok");
     }
 
     #[test]
     fn test_assert_sum_fail() {
         let input_data = [10u8, 0, 0, 0, 30u8, 0, 0, 0, 45u8, 0, 0, 0];
 
-        let outcome = run(b"assert_sum", &input_data, &[], &runtime_context(0, 0, 0, 0))
+        let outcome = run(b"assert_sum", &input_data, &[], &runtime_context(0, 0, 0))
             .expect("outcome to be ok");
 
         match outcome.return_data {
@@ -299,16 +319,31 @@ mod tests {
     }
 
     #[test]
-    fn test_get_mana() {
+    fn test_frozen_balance() {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_mana_left", &input_data, &[], &runtime_context(0, 0, 10, 0)).expect("ok");
+            run(b"get_frozen_balance", &input_data, &[], &runtime_context(10, 100, 0)).expect("ok");
 
-        assert_eq!(outcome.mana_left, 10);
-
+        // The frozen balance is not used for the runtime deductions.
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_i32(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 10),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_liquid_balance() {
+        let input_data = [0u8; 0];
+
+        let outcome =
+            run(b"get_liquid_balance", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
+        // At the moment of measurement the liquid balance is at 97 which is the value returned.
+        // However returning the value itself costs additional balance which results in final
+        // liquid balance being 79.
+        assert_eq!(outcome.liquid_balance, 79);
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 97),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -317,12 +352,13 @@ mod tests {
     fn test_get_storage_usage() {
         let input_data = [0u8; 0];
         let outcome =
-            run(b"get_storage_usage", &input_data, &[], &runtime_context(0, 0, 0, 10)).expect("ok");
+            run(b"get_storage_usage", &input_data, &[], &runtime_context(0, 100, 10)).expect("ok");
 
+        // The storage usage is not changed by this function call.
         assert_eq!(outcome.storage_usage, 10);
 
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(10)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 10),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -330,9 +366,13 @@ mod tests {
     #[test]
     fn test_storage_usage_changed() {
         let input_data = [0u8; 0];
-        let outcome =
-            run(b"run_test_with_storage_change", &input_data, &[], &runtime_context(0, 0, 0, 10))
-                .expect("ok");
+        let outcome = run(
+            b"run_test_with_storage_change",
+            &input_data,
+            &[],
+            &runtime_context(0, 1_000_000_000, 10),
+        )
+        .expect("ok");
 
         // We inserted three entries 15 (as defined in the contract) + 4 (i32) bytes each.
         // Then we removed one entry, and replaced another with 15 + 8 (u64) bytes.
@@ -350,17 +390,92 @@ mod tests {
             b"hello",
             input_data,
             &[],
-            &runtime_context(0, 0, 0, 0),
+            &runtime_context(0, 1_000_000_000, 0),
             path.to_str().unwrap(),
         )
         .expect("ok");
-
-        println!("Gas used for simple call {}", outcome.gas_used);
 
         match outcome.return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"\"hello Alice\""),
             _ => assert!(false, "Expected returned value"),
         };
+    }
+
+    #[test]
+    fn test_gas_error() {
+        let outcome = run_hello_wasm(b"hello", b"{\"name\": \"Alice\"}", 0);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::BalanceExceeded)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_stack_overflow() {
+        let outcome = run_hello_wasm(b"recurse", b"{\"n\": 100000}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Wasmer(msg)) => {
+                assert_eq!(msg, "WebAssembly trap occured during runtime: unknown")
+            }
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_argument_type() {
+        let outcome = run_hello_wasm(b"hello", b"{\"name\": 1}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::AssertFailed)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_invalid_argument_none_string() {
+        let outcome = run_hello_wasm(b"hello", b"{}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"\"hello null\""),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_invalid_argument_none_int() {
+        let outcome = run_hello_wasm(b"recurse", b"{}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"0"),
+            _ => assert!(false, "Expected returned value"),
+        };
+    }
+
+    #[test]
+    fn test_invalid_argument_extra() {
+        let outcome =
+            run_hello_wasm(b"hello", b"{\"name\": \"Alice\", \"name2\": \"Bob\"}", 1_000_000);
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::AssertFailed)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_trigger_assert() {
+        let outcome = run_hello_wasm(b"triggerAssert", b"{}", 1_000_000);
+        println!("{:?}", outcome);
+        let ExecutionOutcome { return_data, logs, .. } = outcome;
+        match return_data {
+            Err(Error::Runtime(RuntimeError::AssertFailed)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0], "LOG: log before assert");
+        assert!(logs[1].starts_with("ABORT: \"expected to fail\" filename:"));
     }
 
     #[test]
@@ -373,12 +488,11 @@ mod tests {
             b"limited_storage",
             input_data,
             &[],
-            &runtime_context(0, 0, 0, 0),
+            &runtime_context(0, 1_000_000_000, 0),
             path.to_str().unwrap(),
         )
         .expect("ok");
 
-        println!("Gas used for simple call {}", outcome.gas_used);
         println!("{:?}", outcome.storage_usage);
         println!("{:?}", outcome.logs);
 
@@ -392,48 +506,13 @@ mod tests {
     }
 
     #[test]
-    fn test_get_gas() {
-        let input_data = [0u8; 0];
-
-        let return_data = run(b"get_gas_left", &input_data, &[], &runtime_context(0, 0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
-
-        let approximate_expected_gas = Config::default().gas_limit;
-
-        match return_data {
-            Ok(ReturnData::Value(output_data)) => {
-                assert_eq!(output_data.len(), 8);
-                let actual_gas = LittleEndian::read_u64(&output_data);
-                assert!(actual_gas <= approximate_expected_gas);
-                assert!(approximate_expected_gas - actual_gas < 10);
-            }
-            _ => assert!(false, "Expected returned value"),
-        };
-    }
-
-    #[test]
-    fn test_get_balance_and_amount() {
-        let input_data = [0u8; 0];
-
-        let outcome =
-            run(b"get_prev_balance", &input_data, &[], &runtime_context(90, 10, 0, 0)).expect("ok");
-
-        assert_eq!(outcome.balance, 100);
-
-        match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(90)),
-            _ => assert!(false, "Expected returned value"),
-        };
-    }
-
-    #[test]
     fn test_originator() {
         let input_data = [0u8; 0];
 
-        let return_data = run(b"get_originator_id", &input_data, &[], &runtime_context(0, 0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"get_originator_id", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         match return_data {
             Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, b"alice.near"),
@@ -448,7 +527,7 @@ mod tests {
         let mut output_data = Vec::new();
 
         for _ in 0..2 {
-            let return_data = run(b"get_random_32", &input_data, &[], &runtime_context(0, 0, 0, 0))
+            let return_data = run(b"get_random_32", &input_data, &[], &runtime_context(0, 100, 0))
                 .map(|outcome| outcome.return_data)
                 .expect("ok");
 
@@ -470,7 +549,7 @@ mod tests {
 
         for _ in 0..2 {
             let return_data =
-                run(b"get_random_buf", &input_data, &[], &runtime_context(0, 0, 0, 0))
+                run(b"get_random_buf", &input_data, &[], &runtime_context(0, 1_000_000_000, 0))
                     .map(|outcome| outcome.return_data)
                     .expect("ok");
 
@@ -491,9 +570,10 @@ mod tests {
     fn test_hash() {
         let input_data = b"testing_hashing_this_slice";
 
-        let return_data = run(b"hash_given_input", input_data, &[], &runtime_context(0, 0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"hash_given_input", input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         let output_data = match return_data {
             Ok(ReturnData::Value(output_data)) => output_data,
@@ -509,9 +589,10 @@ mod tests {
     fn test_hash32() {
         let input_data = b"testing_hashing_this_slice";
 
-        let return_data = run(b"hash32_given_input", input_data, &[], &runtime_context(0, 0, 0, 0))
-            .map(|outcome| outcome.return_data)
-            .expect("ok");
+        let return_data =
+            run(b"hash32_given_input", input_data, &[], &runtime_context(0, 1_000_000_000, 0))
+                .map(|outcome| outcome.return_data)
+                .expect("ok");
 
         let output_data = match return_data {
             Ok(ReturnData::Value(output_data)) => output_data,
@@ -530,10 +611,10 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"get_block_index", &input_data, &[], &runtime_context(0, 0, 0, 0)).expect("ok");
+            run(b"get_block_index", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
 
         match outcome.return_data {
-            Ok(ReturnData::Value(output_data)) => assert_eq!(&output_data, &encode_u64(123)),
+            Ok(ReturnData::Value(output_data)) => assert_eq!(decode_u64(&output_data), 123),
             _ => assert!(false, "Expected returned value"),
         };
     }
@@ -543,7 +624,7 @@ mod tests {
         let input_data = [0u8; 0];
 
         let outcome =
-            run(b"log_something", &input_data, &[], &runtime_context(0, 0, 0, 0)).expect("ok");
+            run(b"log_something", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
 
         assert_eq!(outcome.logs, vec!["LOG: hello".to_string(),]);
     }
@@ -552,7 +633,7 @@ mod tests {
     fn test_mock_check_ethash() {
         let input_data = [0u8; 0];
         let outcome =
-            run(b"check_ethash_naive", &input_data, &[], &runtime_context(0, 0, 0, 0)).expect("ok");
+            run(b"check_ethash_naive", &input_data, &[], &runtime_context(0, 100, 0)).expect("ok");
         println!("{:?}", outcome);
 
         let output_data = match outcome.return_data {
@@ -560,5 +641,52 @@ mod tests {
             _ => panic!("Expected returned value"),
         };
         assert_eq!(output_data, encode_i32(0));
+    }
+
+    #[test]
+    fn test_export_not_found() {
+        let outcome = run(b"hello", &[], &[], &runtime_context(0, 1_000_000, 0)).expect("expect");
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Wasmer(msg)) => {
+                assert_eq!(msg, "call error: Call error: Export not found: hello");
+            }
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    fn test_infinite_initializer() {
+        let outcome = run_wasm_binary(
+            infinite_initializer_contract(),
+            b"hello",
+            &[],
+            &[],
+            &runtime_context(0, 1_000_000, 0),
+        )
+        .expect("expect");
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::BalanceExceeded)) => {}
+            _ => panic!("unexpected outcome"),
+        }
+    }
+
+    #[test]
+    // Current behavior is to run the initializer even if the method doesn't exist
+    fn test_infinite_initializer_export_not_found() {
+        let outcome = run_wasm_binary(
+            infinite_initializer_contract(),
+            b"hello2",
+            &[],
+            &[],
+            &runtime_context(0, 1_000_000, 0),
+        )
+        .expect("expect");
+        println!("{:?}", outcome);
+        match outcome.return_data {
+            Err(Error::Runtime(RuntimeError::BalanceExceeded)) => {}
+            _ => panic!("unexpected outcome"),
+        }
     }
 }

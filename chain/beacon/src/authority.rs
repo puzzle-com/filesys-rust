@@ -418,7 +418,7 @@ mod test {
             1,
             AuthorityRotation::ThresholdedProofOfStake { epoch_length: 10, num_seats_per_slot: 5 },
         )
-            .0;
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
@@ -446,7 +446,7 @@ mod test {
             4,
             AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 2 },
         )
-            .0;
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let initial_authorities = get_authority_config(&chain_spec).initial_proposals;
         let mut authority = bc.authority.write().unwrap();
@@ -505,7 +505,7 @@ mod test {
             4,
             AuthorityRotation::ThresholdedProofOfStake { epoch_length: 2, num_seats_per_slot: 2 },
         )
-            .0;
+        .0;
         let bc = test_blockchain(0, &chain_spec);
         let mut authority = bc.authority.write().unwrap();
         let block1 =

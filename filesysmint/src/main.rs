@@ -7,10 +7,10 @@ use node_runtime::chain_spec::ChainSpec;
 
 const DEFAULT_BASE_PATH: &str = "";
 //
-//const DEFAULT_FILE_LOG: &str = "info";
-//const DEFAULT_FILE_PATH: &str = ".filesys";
-//const DEFAULT_XDG_APP_NAME: &str = ".filesys";
-//const DEFAULT_CONFIG_FILE: &str = "config.json";
+const DEFAULT_FILE_LOG: &str = "info";
+const DEFAULT_FILE_PATH: &str = ".filesys";
+const DEFAULT_XDG_APP_NAME: &str = ".filesys";
+const DEFAULT_CONFIG_FILE: &str = "config.json";
 
 
 
@@ -42,6 +42,13 @@ fn main() {
                 .help("Specify ip address and port for Tendermint ABCI")
                 .default_value("127.0.0.1:26658")
                 .takes_value(true),
+            Arg::with_name("file_path")
+                .short("f")
+                .long("file_path")
+                .value_name("FILE_PATH")
+                .help("Set the repo directory, defaults to ~/.filesys/repo")
+                .default_value(DEFAULT_FILE_PATH)
+                .takes_value(true),
         ])
         .get_matches();
     let base_path = matches.value_of("base_path").map(PathBuf::from).unwrap();
@@ -52,6 +59,7 @@ fn main() {
         ChainSpec::from_file_or_default(&chain_spec_path, ChainSpec::default_poa())
     };
     let addr = matches.value_of("abci_address").map(|address| address.parse().unwrap()).unwrap();
+    let file_path = matches.value_of("file_path").map(PathBuf::from).unwrap();
 
     // Setup logging.
     let mut builder = Builder::from_default_env();
