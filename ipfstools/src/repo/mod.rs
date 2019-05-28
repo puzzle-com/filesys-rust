@@ -56,6 +56,13 @@ pub enum Column {
     Ipns
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum DBColumn {
+    BeaconBlock,
+    BeaconState,
+    ShardBlock,
+}
+
 #[derive(Clone, Debug)]
 pub struct Repo<TRepoTypes: RepoTypes> {
     block_store: TRepoTypes::TBlockStore,
