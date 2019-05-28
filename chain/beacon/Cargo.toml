@@ -19,6 +19,26 @@ chain = { path = "../../chain/chain" }
 configs = { path = "../configs" }
 node-runtime = { path = "../../runtime/runtime" }
 
+bls = { path = "../eth2/utils/bls" }
+boolean-bitfield = { path = "../eth2/utils/boolean-bitfield" }
+store = { path = "../store" }
+failure = "0.1"
+failure_derive = "0.1"
+hashing = { path = "../eth2/utils/hashing" }
+fork_choice = { path = "../eth2/fork_choice" }
+parking_lot = "0.7"
+log = "0.4"
+operation_pool = { path = "../eth2/operation_pool" }
+env_logger = "0.6"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"
+slot_clock = { path = "../eth2/utils/slot_clock" }
+ssz = { path = "../eth2/utils/ssz" }
+state_processing = { path = "../eth2/state_processing" }
+tree_hash = { path = "../eth2/utils/tree_hash" }
+types = { path = "../eth2/types" }
+
 [dev-dependencies]
 testlib = { path = "../../test-utils/testlib" }
 
