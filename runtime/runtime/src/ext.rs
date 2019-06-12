@@ -1,20 +1,22 @@
 use std::collections::HashMap;
 use std::iter::Peekable;
+use std::sync::{Arc, Mutex};
 
+use bigint::{H256, H64, U256};
 use kvdb::DBValue;
 
-use primitives::hash::CryptoHash;
-use primitives::transaction::{AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction};
-use primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
-use storage::{TrieUpdate, TrieUpdateIterator};
+use near_primitives::hash::CryptoHash;
+use near_primitives::transaction::{
+    AsyncCall, Callback, CallbackInfo, ReceiptBody, ReceiptTransaction,
+};
+use near_primitives::types::{AccountId, Balance, CallbackId, Nonce, PromiseId, ReceiptId};
+use near_primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
+use near_store::set;
+use near_store::{TrieUpdate, TrieUpdateIterator};
 use wasm::ext::{Error as ExtError, External, Result as ExtResult};
 
 use crate::ethereum::EthashProvider;
 use crate::POISONED_LOCK_ERR;
-use bigint::{H256, H64, U256};
-use primitives::utils::{create_nonce_with_nonce, key_for_account, key_for_callback};
-use std::sync::{Arc, Mutex};
-use storage::set;
 
 pub const ACCOUNT_DATA_SEPARATOR: &[u8; 1] = b",";
 
@@ -227,7 +229,7 @@ impl<'a> External for RuntimeExt<'a> {
         difficulty: u64,
     ) -> bool {
         self.ethash_provider.lock().expect(POISONED_LOCK_ERR).check_ethash(
-            block_number,
+            U256::from(block_number),
             H256::from(header_hash),
             H64::from(nonce),
             H256::from(mix_hash),
