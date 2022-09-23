@@ -13,7 +13,7 @@ setup(
     package_dir={'': 'src'},
     install_requires=[
         'ed25519==1.4',
-        'protobuf==3.6.1',
+        'protobuf==3.18.3',
         'requests==2.21.0',
     ],
     entry_points='''
